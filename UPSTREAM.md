@@ -141,3 +141,4 @@ one up, and delete the row once the pull lands and is in the pull log.
 | Date | Upstream ref | What came over |
 |---|---|---|
 | 2026-10-27 | `de3b9f5` | Initial copy |
+| 2026-10-27 | `18c8451` | `src/ui/chart_band.cpp`: the column cap follows `PUCK_LCD_WIDTH`, so the panel's charts can run the full 1024 px. Made upstream for this repo |
