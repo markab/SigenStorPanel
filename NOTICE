@@ -1,0 +1,14 @@
+SigenStorPanel
+
+Shares code with SigenStorPuck (https://github.com/markab/SigenStorPuck), by the
+same author. See UPSTREAM.md for which files and from which revision.
+
+Third-party material:
+
+- esp-web-tools (Apache-2.0), vendored under web/installer/vendor/esp-web-tools/.
+- Montserrat (SIL Open Font License 1.1), subset into src/ui/fonts/.
+
+To be added when the display backend lands (docs/PLAN.md, Phase 0a):
+
+- The EK79007 panel initialisation sequence, from Espressif's esp_lcd_ek79007
+  component (Apache-2.0). Keep Espressif's copyright line with it.

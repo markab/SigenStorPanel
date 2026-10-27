@@ -1,0 +1,62 @@
+{
+  "v": 1,
+  "ts": 1784984400,
+  "ok": false,
+  "age": 12,
+  "power": {
+    "pv": null,
+    "grid": null,
+    "batt": null,
+    "home": null,
+    "ev": null,
+    "plant": null,
+    "off_grid": false
+  },
+  "battery": {
+    "soc": null,
+    "soh": null,
+    "capacity_kwh": 16.0,
+    "temp_c": null,
+    "eta_min": null
+  },
+  "today": {
+    "solar": 12.4,
+    "import": 2.2,
+    "export": 2.2,
+    "load": 9.4,
+    "charge": 7.6,
+    "discharge": 4.6,
+    "flows": {
+      "solar_load": 4.0,
+      "solar_batt": 6.2,
+      "solar_grid": 2.2,
+      "grid_load": 0.8,
+      "grid_batt": 1.4,
+      "batt_load": 4.6,
+      "batt_grid": 0.0,
+      "solar_ev": 0.0,
+      "batt_ev": 0.0,
+      "grid_ev": 0.0
+    }
+  },
+  "cost": {
+    "configured": true,
+    "saving_gbp": 1.23,
+    "rate_p": 7.5,
+    "next": [
+      {
+        "from": 1784986200,
+        "p": 23.1
+      },
+      {
+        "from": 1784988000,
+        "p": 7.5
+      },
+      {
+        "from": 1784989800,
+        "p": 7.5
+      }
+    ]
+  },
+  "alarms": 0
+}

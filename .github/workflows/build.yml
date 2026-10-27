@@ -1,0 +1,140 @@
+name: build
+
+# Every push and pull request gets built, so breakage is caught without hardware.
+# A v* tag additionally cuts a release with the flashable artifacts attached.
+#
+# MANUAL-ONLY until Phase 0c (docs/PLAN.md). This came over from SigenStorPuck
+# unchanged apart from the env names, and the tree does not build yet. Restore the
+# triggers below once `pio run -e panel` and `pio run -e sim` pass, and switch the
+# cache to this repo's own PlatformIO core_dir.
+on:
+  workflow_dispatch:
+#  push:
+#    branches: [main]
+#    tags: ['v*']
+#  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      # Needed only to create the release on a tag.
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The ESP32 toolchain is several hundred megabytes and the platform pulls
+      # more; without this every run spends most of its time downloading.
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio esptool
+
+      - name: Build firmware
+        run: |
+          pio run -e panel
+
+      # Worth building too: the simulator shares the snapshot model, the enrolment
+      # URL parser and every screen, so this catches breakage in code the firmware
+      # build also depends on — and it is a fraction of the cost.
+      - name: Build simulator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev
+          pio run -e sim
+
+      # On tags this feeds the release; on main it feeds the installer page. Both
+      # want the same three files, so it runs for both.
+      - name: Package artifacts
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        run: ./tools/package_release.sh
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          # One firmware and one whole-flash image per board variant. A Release's
+          # asset namespace is flat, so these carry the slug in the name; the
+          # per-slug manifests live on Pages next to their merged.bin.
+          files: |
+            dist/firmware-*.bin
+            dist/merged-*.bin
+          generate_release_notes: true
+
+      # Handed to the pages job, which cannot see this job's workspace.
+      - name: Keep artifacts for the installer
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist/
+
+  # Publishes the installer to Pages, with the firmware alongside it.
+  #
+  # Two repository settings are required and neither can be set from here:
+  #
+  #   Settings > Pages > Source: GitHub Actions
+  #     Otherwise Pages serves README.md through Jekyll and the installer is never
+  #     published — which looks like the install link reloading the page, because the
+  #     README's own link points back at the same URL.
+  #
+  # Deploys from main rather than from a tag. The github-pages environment is created
+  # restricted to branches, and getting a tag allowed there needs a rule whose ref
+  # type is Tag rather than Branch — an easy thing to set wrongly, and it rejected two
+  # releases before this was changed. main is allowed by default, so this needs no
+  # environment rule at all.
+  #
+  # The cost is that the installer flashes the tip of main rather than the newest
+  # tagged release. The device's updater reads the same per-slug manifest from Pages
+  # (SigenStorPuck/<slug>/manifest.json), so the installer and OTA stay in step —
+  # both advertise whatever main's PUCK_FW_VERSION says, gated on that bump.
+  #
+  # Tags only, deliberately. The page and the binary it flashes have to be served
+  # from the same origin — GitHub release assets send no CORS header, so a page
+  # fetching them cross-origin is blocked and flashing never starts. Publishing on
+  # every main push would leave Pages advertising a manifest with no binary next to
+  # it, so it only ever deploys as part of cutting a release.
+  pages:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      # A permissions block replaces the defaults rather than adding to them, so
+      # contents: read has to be spelled out — without it actions/checkout cannot
+      # read a private repository and fails with "repository not found", which reads
+      # like the repo is missing rather than like a permissions problem.
+      contents: read
+      # download-artifact reads this run's artifacts through the Actions API.
+      actions: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect the firmware built above
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: web/installer
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/installer
+      - id: deploy
+        uses: actions/deploy-pages@v4

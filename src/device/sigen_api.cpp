@@ -1,0 +1,231 @@
+#include "sigen_api.h"
+
+#include <HTTPClient.h>
+#include <WiFi.h>
+#include <WiFiClient.h>
+#include <WiFiClientSecure.h>
+#include <time.h>
+
+#include "board_config.h"
+#include "day_series.h"
+#include "settings.h"
+
+namespace {
+
+constexpr const char* SUMMARY_PATH = "/api/summary";
+
+// Five-minute slots: 288 a series, about three chart columns each, which is the
+// resolution the min/max envelope needs to show broken cloud as a band rather
+// than a line. ~3.5 KB, fetched every few minutes rather than every poll.
+constexpr const char* DAY_SERIES_PATH = "/api/day/series?slot_minutes=5";
+constexpr const char* SUMMARY_PATH_DATED = "/api/summary?date=";
+
+// Identifies the device in the server's logs. Version included so an old device
+// misbehaving in the field can be recognised from the access log alone.
+constexpr const char* USER_AGENT = "SigenStorPuck/" PUCK_FW_VERSION " (ESP32-S3)";
+
+// Separate connect and total budgets: a host that accepts the connection and then
+// stalls should not hold the poll loop for the whole read timeout.
+constexpr uint16_t CONNECT_TIMEOUT_MS = 4000;
+constexpr uint16_t TOTAL_TIMEOUT_MS = 8000;
+
+// The ESP-IDF root certificate bundle that Arduino-ESP32 embeds. One mechanism
+// validates both the VPS and, later, GitHub's release CDN, and it survives a CA
+// rotation — better than pinning an individual root such as ISRG Root X1.
+// Arduino-ESP32 3.x wants the bundle and its length, so both ends are needed.
+extern "C" const uint8_t rootca_crt_bundle_start[] asm("_binary_x509_crt_bundle_start");
+extern "C" const uint8_t rootca_crt_bundle_end[] asm("_binary_x509_crt_bundle_end");
+
+// TLS certificate validity cannot be checked without a real clock. A device that
+// has never reached NTP sits somewhere in 1970, and every certificate looks
+// not-yet-valid — which surfaces as a handshake failure and sends you hunting for
+// a certificate problem that does not exist.
+bool clock_is_plausible() {
+  time_t now = time(nullptr);
+  // 1 Jan 2024. Anything earlier means NTP has not landed.
+  return now > 1704067200;
+}
+
+}  // namespace
+
+const char* fetch_result_name(FetchResult result) {
+  switch (result) {
+    case FetchResult::Ok:
+      return "ok";
+    case FetchResult::NotConfigured:
+      return "not configured";
+    case FetchResult::NoNetwork:
+      return "no network";
+    case FetchResult::ConnectFailed:
+      return "connect failed";
+    case FetchResult::TlsFailed:
+      return "TLS failed";
+    case FetchResult::ClockUnset:
+      return "clock unset";
+    case FetchResult::Unauthorised:
+      return "unauthorised";
+    case FetchResult::HttpError:
+      return "http error";
+    case FetchResult::BadPayload:
+      return "bad payload";
+    case FetchResult::ProtocolError:
+      return "modbus error";
+    case FetchResult::ReadTimeout:
+      return "read timeout";
+    case FetchResult::EntityUnavailable:
+      return "entities unavailable";
+  }
+  return "unknown";
+}
+
+// One GET against the configured server, returning the body on success.
+//
+// Shared by the summary poll and the day-series backfill: they differ only in
+// the path and what they do with the bytes, and the part worth having in one
+// place is the certificate bundle, the cookie pair and the timeout budget.
+static FetchResult fetch_path(const char* path, String* body, int* status_code) {
+  if (status_code != nullptr) {
+    *status_code = 0;
+  }
+  if (!settings_is_provisioned()) {
+    return FetchResult::NotConfigured;
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    return FetchResult::NoNetwork;
+  }
+
+  const Settings& settings = settings_get();
+  const bool secure = settings.base_url.startsWith("https://");
+
+  if (secure && !clock_is_plausible()) {
+    return FetchResult::ClockUnset;
+  }
+
+  // WiFiClientSecure is large; both live on the stack of the calling task, which
+  // is why the poll task is given a generous one.
+  WiFiClient plain;
+  WiFiClientSecure tls;
+  WiFiClient* client = nullptr;
+  if (secure) {
+    // Validate, never setInsecure(): this request carries a 365-day kiosk token
+    // over the public internet, and an unvalidated connection hands that token to
+    // anyone who can spoof DNS or sit on the route.
+    tls.setCACertBundle(rootca_crt_bundle_start,
+                        static_cast<size_t>(rootca_crt_bundle_end - rootca_crt_bundle_start));
+    // No setTimeout() here: HTTPClient::setTimeout below covers the read timeout
+    // once the stream exists, so this would be redundant.
+    //
+    // Note on log noise you will see on every HTTPS poll:
+    //   [E][NetworkClient.cpp:323] setSocketOption(): fail on 0, errno: 9
+    // three times per fetch. That is upstream and harmless. NetworkClient::read
+    // and ::write apply SO_RCVTIMEO/SO_SNDTIMEO using the base class's fd, but
+    // NetworkClientSecure never sets it — TLS runs its own socket through
+    // sslclient — so the option lands on fd 0 and fails. Polls succeed regardless.
+    // Silencing it would mean giving up the timeouts below, which is a far worse
+    // trade than a noisy log: they are what stops a stalled server holding the
+    // poll loop.
+    client = &tls;
+  } else {
+    // Plain HTTP is for the LAN only, and only because the user asked for an
+    // http:// URL explicitly.
+    client = &plain;
+  }
+
+  HTTPClient http;
+  http.setConnectTimeout(CONNECT_TIMEOUT_MS);
+  http.setTimeout(TOTAL_TIMEOUT_MS);
+  http.setUserAgent(USER_AGENT);
+  http.setReuse(false);
+  // Release assets on GitHub redirect to another host; harmless here and needed
+  // by the self-update path later.
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+
+  const String url = settings.base_url + path;
+  if (!http.begin(*client, url)) {
+    return secure ? FetchResult::TlsFailed : FetchResult::ConnectFailed;
+  }
+
+  // Both cookie names, so one build works over plain HTTP on the LAN and HTTPS on
+  // the VPS with no branching: __Host- prefixed cookies are refused by browsers
+  // over HTTP, and the server accepts either (auth.py _read_cookie).
+  String cookie = "sig_kiosk=" + settings.token + "; __Host-sig_kiosk=" + settings.token;
+  http.addHeader("Cookie", cookie);
+  http.addHeader("Accept", "application/json");
+
+  const int status = http.GET();
+  if (status_code != nullptr) {
+    *status_code = status;
+  }
+
+  if (status <= 0) {
+    http.end();
+    // HTTPClient folds every transport failure into a negative code; on an https
+    // URL the overwhelmingly likely cause is the handshake.
+    return secure ? FetchResult::TlsFailed : FetchResult::ConnectFailed;
+  }
+  if (status == HTTP_CODE_UNAUTHORIZED || status == HTTP_CODE_FORBIDDEN) {
+    http.end();
+    return FetchResult::Unauthorised;
+  }
+  if (status != HTTP_CODE_OK) {
+    http.end();
+    return FetchResult::HttpError;
+  }
+
+  *body = http.getString();
+  http.end();
+  return FetchResult::Ok;
+}
+
+// Shared by the live poll and the dated one: they differ only in the path.
+static FetchResult fetch_summary(const String& path, Snapshot* out, int* status_code) {
+  String body;
+  const FetchResult result = fetch_path(path.c_str(), &body, status_code);
+  if (result != FetchResult::Ok) {
+    return result;
+  }
+
+  Snapshot parsed;
+  if (!snapshot_parse(body.c_str(), body.length(), &parsed)) {
+    return FetchResult::BadPayload;
+  }
+  *out = parsed;
+  return FetchResult::Ok;
+}
+
+FetchResult sigen_api_fetch(Snapshot* out, int* status_code) {
+  return fetch_summary(SUMMARY_PATH, out, status_code);
+}
+
+FetchResult sigen_api_fetch_dated(const String& date, Snapshot* out, int* status_code) {
+  if (date.isEmpty()) {
+    return sigen_api_fetch(out, status_code);
+  }
+  return fetch_summary(String(SUMMARY_PATH_DATED) + date, out, status_code);
+}
+
+FetchResult sigen_api_fetch_day(HistoryBank bank, const String& date, int* status_code) {
+  // The clock is what places the payload in the ring, and TLS already refuses to
+  // run without one, so this is only reachable on a plain-HTTP LAN server that
+  // has not seen NTP yet.
+  const time_t now = time(nullptr);
+  if (now <= 0 || !clock_is_plausible()) {
+    return FetchResult::ClockUnset;
+  }
+
+  String path = DAY_SERIES_PATH;
+  if (!date.isEmpty()) {
+    path += "&date=";
+    path += date;
+  }
+
+  String body;
+  const FetchResult result = fetch_path(path.c_str(), &body, status_code);
+  if (result != FetchResult::Ok) {
+    return result;
+  }
+  if (!day_series_parse(bank, body.c_str(), body.length(), static_cast<uint32_t>(now / 60))) {
+    return FetchResult::BadPayload;
+  }
+  return FetchResult::Ok;
+}

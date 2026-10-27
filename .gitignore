@@ -1,0 +1,38 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+.clang_complete
+.gcc-flags.json
+
+# Build output
+*.bin
+*.elf
+*.map
+build/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Local secrets — server URLs and kiosk tokens belong in NVS, never in the tree
+secrets.h
+*.local.ini
+
+# Working design notes, kept out of the repository rather than out of the project.
+# They document SigenStorDisplay's API contract and auth scheme in detail, and that
+# product has not been released — so publishing this repository would publish its
+# interface. Both files stay on disk and every "see PLAN.md §x" in the source still
+# resolves locally; they are simply not shipped. Keep a copy somewhere durable: a
+# fresh clone will not bring them back.
+CLAUDE.md
+docs/PLAN.md
+# Snapshots of SigenStorPuck's CLAUDE.md and PLAN.md, for the history behind the
+# copied code. Same reason: they describe the same unreleased API.
+docs/PUCK_CLAUDE.md
+docs/PUCK_PLAN.md
+
+# Release artifacts, built by tools/package_release.sh
+dist/

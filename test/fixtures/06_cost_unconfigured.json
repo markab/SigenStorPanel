@@ -1,0 +1,46 @@
+{
+  "v": 1,
+  "ts": 1784984400,
+  "ok": true,
+  "age": 3,
+  "power": {
+    "pv": 2.9,
+    "grid": -0.4,
+    "batt": 0.8,
+    "home": 1.7,
+    "ev": 0.0,
+    "plant": 2.1,
+    "off_grid": false
+  },
+  "battery": {
+    "soc": 70.0,
+    "soh": 99.0,
+    "capacity_kwh": 16.0,
+    "temp_c": 24.5,
+    "eta_min": 110
+  },
+  "today": {
+    "solar": 12.4,
+    "import": 2.2,
+    "export": 2.2,
+    "load": 9.4,
+    "charge": 7.6,
+    "discharge": 4.6,
+    "flows": {
+      "solar_load": 4.0,
+      "solar_batt": 6.2,
+      "solar_grid": 2.2,
+      "grid_load": 0.8,
+      "grid_batt": 1.4,
+      "batt_load": 4.6,
+      "batt_grid": 0.0,
+      "solar_ev": 0.0,
+      "batt_ev": 0.0,
+      "grid_ev": 0.0
+    }
+  },
+  "cost": {
+    "configured": false
+  },
+  "alarms": 0
+}
