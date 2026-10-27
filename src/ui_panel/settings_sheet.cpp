@@ -181,6 +181,43 @@ lv_obj_t* s_keypad_field = nullptr;
 lv_obj_t* s_keypad_error = nullptr;
 char s_keypad_text[16] = {};
 
+// Network picker and the password screen.
+SheetScan s_scan;
+SheetJoinStatus s_join;
+lv_obj_t* s_picker = nullptr;
+lv_obj_t* s_picker_status = nullptr;
+lv_obj_t* s_picker_rows[SHEET_MAX_SCAN] = {};
+lv_obj_t* s_picker_bars[SHEET_MAX_SCAN] = {};
+lv_obj_t* s_picker_ssid[SHEET_MAX_SCAN] = {};
+lv_obj_t* s_picker_kind[SHEET_MAX_SCAN] = {};
+lv_obj_t* s_join_panel = nullptr;
+lv_obj_t* s_join_title = nullptr;
+lv_obj_t* s_password_line = nullptr;
+lv_obj_t* s_password_field = nullptr;
+lv_obj_t* s_password_show = nullptr;
+lv_obj_t* s_join_status = nullptr;
+lv_obj_t* s_join_button = nullptr;
+lv_obj_t* s_keyboard = nullptr;
+char s_join_ssid[33] = {};
+bool s_join_secure = true;
+char s_password[64] = {};
+bool s_password_visible = false;
+// The join this panel asked for, so a status left over from an earlier one is
+// not mistaken for its answer.
+bool s_join_requested = false;
+
+enum class KeyboardMode : uint8_t { Lower, Upper, Digits, Symbols };
+KeyboardMode s_keyboard_mode = KeyboardMode::Lower;
+
+// The install screen: over everything, sheet open or not.
+lv_obj_t* s_updating = nullptr;
+lv_obj_t* s_updating_title = nullptr;
+lv_obj_t* s_updating_bar = nullptr;
+lv_obj_t* s_updating_percent = nullptr;
+
+lv_obj_t* s_auto_check = nullptr;
+lv_obj_t* s_device_dot = nullptr;
+
 // "Tap again to confirm": one button armed at a time.
 lv_obj_t* s_armed = nullptr;
 char s_armed_idle_text[32] = {};
@@ -778,6 +815,8 @@ void refresh_device() {
                                                              : PUCK_COLOUR_MUTED),
       LV_PART_MAIN);
   set_hidden(s_install_button, s_device.update != SheetUpdate::Available);
+  set_hidden(s_device_dot, s_device.update != SheetUpdate::Available);
+  set_checked(s_auto_check, s_device.auto_check);
   set_disabled(s_check_button, s_device.update == SheetUpdate::Checking ||
                                    s_device.update == SheetUpdate::Installing);
 
@@ -942,12 +981,7 @@ void on_forget(lv_event_t* event) {
 
 void on_add_network(lv_event_t* /*event*/) {
   disarm();
-  // The setup network's name and instructions are an overlay on the screens
-  // underneath, so get out of its way.
-  settings_sheet_close(true);
-  if (s_actions.add_network != nullptr) {
-    s_actions.add_network();
-  }
+  settings_sheet_show_picker();
 }
 
 void on_source(lv_event_t* /*event*/) {
@@ -977,6 +1011,13 @@ void on_poll(lv_event_t* event) {
     s_actions.set_poll_interval(s_data.poll_s);
   }
   refresh_data();
+}
+
+void on_auto_check(lv_event_t* /*event*/) {
+  s_device.auto_check = lv_obj_has_state(s_auto_check, LV_STATE_CHECKED);
+  if (s_actions.set_auto_check != nullptr) {
+    s_actions.set_auto_check(s_device.auto_check);
+  }
 }
 
 void on_check(lv_event_t* /*event*/) {
@@ -1093,16 +1134,25 @@ void slide(int32_t from, int32_t to, lv_anim_ready_cb_t done) {
   lv_anim_start(&anim);
 }
 
+bool modal_open() {
+  return !lv_obj_has_flag(s_keypad, LV_OBJ_FLAG_HIDDEN) ||
+         !lv_obj_has_flag(s_picker, LV_OBJ_FLAG_HIDDEN) ||
+         !lv_obj_has_flag(s_join_panel, LV_OBJ_FLAG_HIDDEN);
+}
+
 void on_gesture(lv_event_t* /*event*/) {
   lv_indev_t* indev = lv_indev_get_act();
   if (indev == nullptr) {
     return;
   }
   const lv_dir_t direction = lv_indev_get_gesture_dir(indev);
+  if (!lv_obj_has_flag(s_updating, LV_OBJ_FLAG_HIDDEN)) {
+    return;  // nothing to do while an update installs
+  }
   if (!s_open && direction == LV_DIR_TOP) {
     settings_sheet_open(s_page, true);
     lv_indev_wait_release(indev);
-  } else if (s_open && direction == LV_DIR_BOTTOM && lv_obj_has_flag(s_keypad, LV_OBJ_FLAG_HIDDEN)) {
+  } else if (s_open && direction == LV_DIR_BOTTOM && !modal_open()) {
     settings_sheet_close(true);
     lv_indev_wait_release(indev);
   }
@@ -1138,7 +1188,9 @@ void tick(lv_timer_t* /*timer*/) {
   if (!s_open) {
     return;
   }
-  if (lv_disp_get_inactive_time(nullptr) > IDLE_CLOSE_MS) {
+  // Not while picking a network: with nothing saved, that is the only thing the
+  // panel can usefully show.
+  if (lv_disp_get_inactive_time(nullptr) > IDLE_CLOSE_MS && !modal_open()) {
     settings_sheet_close(true);
     return;
   }
@@ -1356,7 +1408,7 @@ void build_wifi(lv_obj_t* tile) {
   spacer(right);
   lv_obj_t* add = button(right, "Add a network", COLOUR_ACCENT, PUCK_COLOUR_TEXT);
   lv_obj_add_event_cb(add, on_add_network, LV_EVENT_CLICKED, nullptr);
-  hint(right, "Puts up the setup network. Join it from your phone to add one.");
+  hint(right, "Pick a network and type its password here. Up to five are remembered.");
 }
 
 void build_data(lv_obj_t* tile) {
@@ -1414,8 +1466,8 @@ void build_data(lv_obj_t* tile) {
   s_server_link = detail(server, "Enrolment link");
   s_server_forget = button(server, "Forget link", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
   lv_obj_add_event_cb(s_server_forget, on_forget_server, LV_EVENT_CLICKED, nullptr);
-  hint(server, "To set a new link, paste it in the setup portal or on the web page "
-               "(Device page).");
+  hint(server, "To set a new link, paste it into the web settings page. Its address "
+               "and QR code are on the Device page.");
 
   lv_obj_t* modbus = detail_box();
   s_source_detail[1] = modbus;
@@ -1435,8 +1487,8 @@ void build_data(lv_obj_t* tile) {
   s_source_detail[2] = ha;
   s_ha_host = detail(ha, "Home Assistant");
   s_ha_token = detail(ha, "Access token");
-  hint(ha, "The address and token go in the setup portal. Entities are mapped on the web "
-           "page (Device page).");
+  hint(ha, "The address, token and entities are set on the web settings page. Its "
+           "address and QR code are on the Device page.");
 
   lv_obj_t* right = card(body, 360, CARD_H);
   caption(right, "READING");
@@ -1462,6 +1514,9 @@ void build_device(lv_obj_t* tile) {
     text(line, FONT_TEXT, PUCK_COLOUR_MUTED, PERF_NAMES[i]);
     s_perf[i] = text(line, FONT_TEXT, PUCK_COLOUR_TEXT, "--");
   }
+  spacer(left);
+  s_restart_button = button(left, "Restart", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  lv_obj_add_event_cb(s_restart_button, on_restart, LV_EVENT_CLICKED, nullptr);
 
   lv_obj_t* column = plain(body);
   lv_obj_set_size(column, 400, CARD_H);
@@ -1472,16 +1527,18 @@ void build_device(lv_obj_t* tile) {
   caption(firmware, "FIRMWARE");
   s_firmware = text(firmware, FONT_ROW, PUCK_COLOUR_TEXT, "");
   s_update_text = hint(firmware, "");
+  lv_obj_t* auto_line = row(firmware);
+  text(auto_line, FONT_TEXT, PUCK_COLOUR_TEXT, "Check automatically");
+  s_auto_check = toggle(auto_line);
+  lv_obj_add_event_cb(s_auto_check, on_auto_check, LV_EVENT_VALUE_CHANGED, nullptr);
   lv_obj_t* buttons = plain(firmware);
   lv_obj_set_size(buttons, LV_PCT(100), LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(buttons, LV_FLEX_FLOW_ROW_WRAP);
   lv_obj_set_style_pad_gap(buttons, 10, LV_PART_MAIN);
-  s_check_button = button(buttons, "Check for updates", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  s_check_button = button(buttons, "Check now", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
   lv_obj_add_event_cb(s_check_button, on_check, LV_EVENT_CLICKED, nullptr);
   s_install_button = button(buttons, "Install", COLOUR_ACCENT, PUCK_COLOUR_TEXT);
   lv_obj_add_event_cb(s_install_button, on_install, LV_EVENT_CLICKED, nullptr);
-  s_restart_button = button(buttons, "Restart", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
-  lv_obj_add_event_cb(s_restart_button, on_restart, LV_EVENT_CLICKED, nullptr);
 
   lv_obj_t* web = card(column, 400, LV_SIZE_CONTENT);
   lv_obj_set_flex_grow(web, 1);
@@ -1519,6 +1576,15 @@ void build_header(lv_obj_t* parent) {
                         reinterpret_cast<void*>(static_cast<intptr_t>(i)));
     s_tabs[i] = tab;
   }
+  // A dot on Device when an update is waiting, so it is seen from any page.
+  s_device_dot = plain(s_tabs[PAGE_COUNT - 1]);
+  lv_obj_set_size(s_device_dot, 10, 10);
+  lv_obj_set_style_radius(s_device_dot, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_device_dot, lv_color_hex(PUCK_COLOUR_BATTERY), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(s_device_dot, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_add_flag(s_device_dot, LV_OBJ_FLAG_IGNORE_LAYOUT);
+  lv_obj_align(s_device_dot, LV_ALIGN_TOP_RIGHT, 12, -6);
+  lv_obj_add_flag(s_device_dot, LV_OBJ_FLAG_HIDDEN);
 
   lv_obj_t* done = button(parent, "Done", COLOUR_CARD, COLOUR_ACCENT);
   lv_obj_set_style_text_font(lv_obj_get_child(done, 0), FONT_ROW, LV_PART_MAIN);
@@ -1595,6 +1661,375 @@ void build_keypad(lv_obj_t* parent) {
   lv_obj_add_flag(s_keypad, LV_OBJ_FLAG_HIDDEN);
 }
 
+
+// ------------------------------------------------------- picker and joining ---
+
+// Four layouts, like a phone's. Shift is one-shot: it drops back to lower case
+// after the next letter.
+const char* KEYS_LOWER[] = {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "\n",
+                            "a", "s", "d", "f", "g", "h", "j", "k", "l", "\n",
+                            "Shift", "z", "x", "c", "v", "b", "n", "m", "Del", "\n",
+                            "123", "space", ".", ""};
+const char* KEYS_UPPER[] = {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "\n",
+                            "A", "S", "D", "F", "G", "H", "J", "K", "L", "\n",
+                            "Shift", "Z", "X", "C", "V", "B", "N", "M", "Del", "\n",
+                            "123", "space", ".", ""};
+const char* KEYS_DIGITS[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
+                             "-", "/", ":", ";", "(", ")", "$", "&", "@", "\"", "\n",
+                             "#+=", ".", ",", "?", "!", "'", "_", "Del", "\n",
+                             "abc", "space", ".", ""};
+const char* KEYS_SYMBOLS[] = {"[", "]", "{", "}", "#", "%", "^", "*", "+", "=", "\n",
+                              "\\", "|", "~", "<", ">", "`", "$", "&", "@", "\"", "\n",
+                              "123", ".", ",", "?", "!", "'", "_", "Del", "\n",
+                              "abc", "space", ".", ""};
+
+bool is_special_key(const char* key) {
+  return strcmp(key, "Shift") == 0 || strcmp(key, "Del") == 0 || strcmp(key, "123") == 0 ||
+         strcmp(key, "#+=") == 0 || strcmp(key, "abc") == 0;
+}
+
+void apply_keyboard_mode() {
+  const char** map = s_keyboard_mode == KeyboardMode::Upper    ? KEYS_UPPER
+                     : s_keyboard_mode == KeyboardMode::Digits ? KEYS_DIGITS
+                     : s_keyboard_mode == KeyboardMode::Symbols ? KEYS_SYMBOLS
+                                                                : KEYS_LOWER;
+  lv_btnmatrix_set_map(s_keyboard, map);
+  uint16_t id = 0;
+  for (const char** key = map; (*key)[0] != '\0'; ++key) {
+    if (strcmp(*key, "\n") == 0) {
+      continue;
+    }
+    if (strcmp(*key, "space") == 0) {
+      lv_btnmatrix_set_btn_width(s_keyboard, id, 6);
+    } else if (is_special_key(*key)) {
+      lv_btnmatrix_set_btn_width(s_keyboard, id, 2);
+      lv_btnmatrix_set_btn_ctrl(s_keyboard, id, LV_BTNMATRIX_CTRL_CHECKED);
+    }
+    // Shift is only lit when it is on.
+    if (strcmp(*key, "Shift") == 0 && s_keyboard_mode != KeyboardMode::Upper) {
+      lv_btnmatrix_clear_btn_ctrl(s_keyboard, id, LV_BTNMATRIX_CTRL_CHECKED);
+    }
+    ++id;
+  }
+}
+
+void refresh_password() {
+  const size_t length = strlen(s_password);
+  if (length == 0) {
+    lv_label_set_text(s_password_field, "Password");
+    lv_obj_set_style_text_color(s_password_field, lv_color_hex(PUCK_COLOUR_MUTED), LV_PART_MAIN);
+  } else if (s_password_visible) {
+    lv_label_set_text(s_password_field, s_password);
+    lv_obj_set_style_text_color(s_password_field, lv_color_hex(PUCK_COLOUR_TEXT), LV_PART_MAIN);
+  } else {
+    char masked[sizeof(s_password)];
+    memset(masked, '*', length);
+    masked[length] = '\0';
+    lv_label_set_text(s_password_field, masked);
+    lv_obj_set_style_text_color(s_password_field, lv_color_hex(PUCK_COLOUR_TEXT), LV_PART_MAIN);
+  }
+  button_set_text(s_password_show, s_password_visible ? "Hide" : "Show");
+}
+
+void refresh_join() {
+  char title[64];
+  snprintf(title, sizeof(title), "Join %s", s_join_ssid);
+  lv_label_set_text(s_join_title, title);
+  const bool joining = s_join_requested && s_join.state == SheetJoin::Joining;
+  const bool failed = s_join_requested && s_join.state == SheetJoin::Failed;
+  if (joining) {
+    lv_label_set_text(s_join_status, "Joining...");
+  } else if (failed) {
+    lv_label_set_text(s_join_status, s_join.message[0] != '\0' ? s_join.message : "Could not join");
+  } else {
+    lv_label_set_text(s_join_status, s_join_secure ? "" : "No password needed");
+  }
+  lv_obj_set_style_text_color(s_join_status,
+                              lv_color_hex(failed ? PUCK_COLOUR_ALARM : PUCK_COLOUR_MUTED),
+                              LV_PART_MAIN);
+  set_hidden(s_password_line, !s_join_secure);
+  set_hidden(s_keyboard, !s_join_secure);
+  set_disabled(s_join_button, joining || (s_join_secure && strlen(s_password) < 8));
+  set_disabled(s_keyboard, joining);
+  refresh_password();
+}
+
+void refresh_picker() {
+  char status[32];
+  if (s_scan.running) {
+    snprintf(status, sizeof(status), "Scanning...");
+  } else if (s_scan.count == 0) {
+    snprintf(status, sizeof(status), "Nothing found");
+  } else {
+    snprintf(status, sizeof(status), "%u found", static_cast<unsigned>(s_scan.count));
+  }
+  lv_label_set_text(s_picker_status, status);
+  for (int i = 0; i < SHEET_MAX_SCAN; ++i) {
+    if (i >= s_scan.count) {
+      lv_obj_add_flag(s_picker_rows[i], LV_OBJ_FLAG_HIDDEN);
+      continue;
+    }
+    const SheetScanResult& result = s_scan.results[i];
+    lv_obj_clear_flag(s_picker_rows[i], LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(s_picker_ssid[i], result.ssid);
+    set_bars(s_picker_bars[i], result.rssi, true);
+    lv_label_set_text(s_picker_kind[i], result.saved    ? "saved"
+                                        : result.secure ? "password"
+                                                        : "open");
+    lv_obj_set_style_text_color(
+        s_picker_kind[i], lv_color_hex(result.saved ? PUCK_COLOUR_BATTERY : PUCK_COLOUR_MUTED),
+        LV_PART_MAIN);
+  }
+}
+
+void start_join() {
+  s_join_requested = true;
+  s_join.state = SheetJoin::Joining;
+  s_join.message[0] = '\0';
+  refresh_join();
+  if (s_actions.join_network != nullptr) {
+    s_actions.join_network(s_join_ssid, s_join_secure ? s_password : "");
+  }
+}
+
+void on_pick(lv_event_t* event) {
+  const intptr_t i = reinterpret_cast<intptr_t>(lv_event_get_user_data(event));
+  if (i >= s_scan.count) {
+    return;
+  }
+  const SheetScanResult& result = s_scan.results[i];
+  // A saved network already has its password; an open one needs none.
+  const bool ask = result.secure && !result.saved;
+  settings_sheet_show_password(result.ssid, ask);
+  if (!ask) {
+    start_join();
+  }
+}
+
+void on_keyboard(lv_event_t* /*event*/) {
+  const uint16_t id = lv_btnmatrix_get_selected_btn(s_keyboard);
+  if (id == LV_BTNMATRIX_BTN_NONE) {
+    return;
+  }
+  const char* key = lv_btnmatrix_get_btn_text(s_keyboard, id);
+  const size_t length = strlen(s_password);
+  if (strcmp(key, "Shift") == 0) {
+    s_keyboard_mode =
+        s_keyboard_mode == KeyboardMode::Upper ? KeyboardMode::Lower : KeyboardMode::Upper;
+    apply_keyboard_mode();
+    return;
+  }
+  if (strcmp(key, "123") == 0 || strcmp(key, "#+=") == 0 || strcmp(key, "abc") == 0) {
+    s_keyboard_mode = key[0] == '1'   ? KeyboardMode::Digits
+                      : key[0] == '#' ? KeyboardMode::Symbols
+                                      : KeyboardMode::Lower;
+    apply_keyboard_mode();
+    return;
+  }
+  if (strcmp(key, "Del") == 0) {
+    if (length > 0) {
+      s_password[length - 1] = '\0';
+    }
+  } else if (length + 1 < sizeof(s_password)) {
+    s_password[length] = strcmp(key, "space") == 0 ? ' ' : key[0];
+    s_password[length + 1] = '\0';
+    if (s_keyboard_mode == KeyboardMode::Upper) {
+      s_keyboard_mode = KeyboardMode::Lower;
+      apply_keyboard_mode();
+    }
+  }
+  // A failed attempt's message goes once the password is being changed.
+  if (s_join.state == SheetJoin::Failed) {
+    s_join.state = SheetJoin::Idle;
+  }
+  refresh_join();
+}
+
+lv_obj_t* modal_backdrop(lv_obj_t* parent) {
+  lv_obj_t* backdrop = plain(parent);
+  lv_obj_set_size(backdrop, SHEET_W, SHEET_H);
+  lv_obj_add_flag(backdrop, LV_OBJ_FLAG_CLICKABLE);  // swallow taps behind it
+  lv_obj_set_style_bg_color(backdrop, lv_color_hex(PUCK_COLOUR_BG), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(backdrop, LV_OPA_80, LV_PART_MAIN);
+  lv_obj_add_flag(backdrop, LV_OBJ_FLAG_HIDDEN);
+  return backdrop;
+}
+
+void build_picker(lv_obj_t* parent) {
+  s_picker = modal_backdrop(parent);
+  lv_obj_t* box = card(s_picker, 640, 540);
+  lv_obj_center(box);
+  lv_obj_set_style_border_width(box, 1, LV_PART_MAIN);
+  lv_obj_set_style_border_color(box, lv_color_hex(COLOUR_CONTROL), LV_PART_MAIN);
+
+  lv_obj_t* heading = row(box);
+  caption(heading, "CHOOSE A NETWORK");
+  s_picker_status = text(heading, FONT_HINT, PUCK_COLOUR_MUTED, "");
+
+  lv_obj_t* list = plain(box);
+  lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(list, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_AUTO);
+  lv_obj_set_width(list, LV_PCT(100));
+  lv_obj_set_flex_grow(list, 1);
+  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(list, 4, LV_PART_MAIN);
+  for (int i = 0; i < SHEET_MAX_SCAN; ++i) {
+    lv_obj_t* line = lv_btn_create(list);
+    lv_obj_set_size(line, LV_PCT(100), 56);
+    lv_obj_set_style_bg_opa(line, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(line, LV_OPA_COVER, LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(line, lv_color_hex(COLOUR_CONTROL), LV_STATE_PRESSED);
+    lv_obj_set_style_shadow_width(line, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(line, 12, LV_PART_MAIN);
+    lv_obj_set_style_pad_hor(line, 12, LV_PART_MAIN);
+    lv_obj_set_flex_flow(line, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(line, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(line, 14, LV_PART_MAIN);
+    lv_obj_add_event_cb(line, on_pick, LV_EVENT_CLICKED,
+                        reinterpret_cast<void*>(static_cast<intptr_t>(i)));
+    s_picker_rows[i] = line;
+    s_picker_bars[i] = signal_bars(line);
+    s_picker_ssid[i] = text(line, FONT_ROW, PUCK_COLOUR_TEXT, "");
+    lv_label_set_long_mode(s_picker_ssid[i], LV_LABEL_LONG_DOT);
+    lv_obj_set_flex_grow(s_picker_ssid[i], 1);
+    s_picker_kind[i] = text(line, FONT_HINT, PUCK_COLOUR_MUTED, "");
+  }
+
+  lv_obj_t* buttons = row(box);
+  lv_obj_t* again = button(buttons, "Scan again", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  lv_obj_add_event_cb(
+      again,
+      [](lv_event_t*) {
+        s_scan.running = true;
+        refresh_picker();
+        if (s_actions.start_scan != nullptr) {
+          s_actions.start_scan();
+        }
+      },
+      LV_EVENT_CLICKED, nullptr);
+  lv_obj_t* cancel = button(buttons, "Cancel", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  lv_obj_add_event_cb(
+      cancel, [](lv_event_t*) { lv_obj_add_flag(s_picker, LV_OBJ_FLAG_HIDDEN); },
+      LV_EVENT_CLICKED, nullptr);
+}
+
+void build_join_panel(lv_obj_t* parent) {
+  s_join_panel = modal_backdrop(parent);
+  lv_obj_t* box = card(s_join_panel, SHEET_W - 48, LV_SIZE_CONTENT);
+  lv_obj_align(box, LV_ALIGN_TOP_MID, 0, 12);
+  lv_obj_set_style_border_width(box, 1, LV_PART_MAIN);
+  lv_obj_set_style_border_color(box, lv_color_hex(COLOUR_CONTROL), LV_PART_MAIN);
+
+  lv_obj_t* heading = row(box);
+  s_join_title = text(heading, FONT_BIG, PUCK_COLOUR_TEXT, "");
+  lv_label_set_long_mode(s_join_title, LV_LABEL_LONG_DOT);
+  lv_obj_set_style_max_width(s_join_title, 600, LV_PART_MAIN);
+  lv_obj_t* actions = plain(heading);
+  lv_obj_set_size(actions, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(actions, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(actions, 10, LV_PART_MAIN);
+  lv_obj_t* cancel = button(actions, "Cancel", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  lv_obj_add_event_cb(
+      cancel,
+      [](lv_event_t*) {
+        s_join_requested = false;
+        lv_obj_add_flag(s_join_panel, LV_OBJ_FLAG_HIDDEN);
+      },
+      LV_EVENT_CLICKED, nullptr);
+  s_join_button = button(actions, "Join", COLOUR_ACCENT, PUCK_COLOUR_TEXT);
+  lv_obj_add_event_cb(s_join_button, [](lv_event_t*) { start_join(); }, LV_EVENT_CLICKED,
+                      nullptr);
+
+  s_password_line = row(box);
+  lv_obj_set_style_pad_column(s_password_line, 16, LV_PART_MAIN);
+  s_password_field = text(s_password_line, FONT_BIG, PUCK_COLOUR_TEXT, "");
+  lv_obj_set_flex_grow(s_password_field, 1);
+  lv_label_set_long_mode(s_password_field, LV_LABEL_LONG_DOT);
+  lv_obj_set_style_border_side(s_password_field, LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
+  lv_obj_set_style_border_width(s_password_field, 2, LV_PART_MAIN);
+  lv_obj_set_style_border_color(s_password_field, lv_color_hex(COLOUR_ACCENT), LV_PART_MAIN);
+  lv_obj_set_style_pad_bottom(s_password_field, 6, LV_PART_MAIN);
+  s_password_show = button(s_password_line, "Show", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  lv_obj_add_event_cb(
+      s_password_show,
+      [](lv_event_t*) {
+        s_password_visible = !s_password_visible;
+        refresh_password();
+      },
+      LV_EVENT_CLICKED, nullptr);
+
+  s_join_status = text(box, FONT_TEXT, PUCK_COLOUR_MUTED, "");
+
+  s_keyboard = lv_btnmatrix_create(box);
+  lv_obj_set_size(s_keyboard, LV_PCT(100), 300);
+  lv_obj_set_style_bg_opa(s_keyboard, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_width(s_keyboard, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(s_keyboard, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_gap(s_keyboard, 8, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_keyboard, lv_color_hex(COLOUR_CONTROL), LV_PART_ITEMS);
+  lv_obj_set_style_bg_opa(s_keyboard, LV_OPA_COVER, LV_PART_ITEMS);
+  lv_obj_set_style_radius(s_keyboard, 10, LV_PART_ITEMS);
+  lv_obj_set_style_shadow_width(s_keyboard, 0, LV_PART_ITEMS);
+  lv_obj_set_style_border_width(s_keyboard, 0, LV_PART_ITEMS);
+  lv_obj_set_style_text_font(s_keyboard, FONT_ROW, LV_PART_ITEMS);
+  lv_obj_set_style_text_color(s_keyboard, lv_color_hex(PUCK_COLOUR_TEXT), LV_PART_ITEMS);
+  // Special keys a shade darker, and Shift lit when on: CHECKED marks both.
+  const lv_style_selector_t checked =
+      static_cast<lv_style_selector_t>(LV_PART_ITEMS) | LV_STATE_CHECKED;
+  lv_obj_set_style_bg_color(s_keyboard, lv_color_hex(PUCK_COLOUR_TRACK), checked);
+  lv_obj_set_style_opa(s_keyboard, LV_OPA_40, LV_STATE_DISABLED);
+  keep_gestures(s_keyboard);
+  lv_obj_add_event_cb(s_keyboard, on_keyboard, LV_EVENT_VALUE_CHANGED, nullptr);
+  apply_keyboard_mode();
+}
+
+void refresh_updating() {
+  const bool installing = s_device.update == SheetUpdate::Installing;
+  if (!installing) {
+    lv_obj_add_flag(s_updating, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  char line[48];
+  snprintf(line, sizeof(line), "Updating to %s", s_device.update_version);
+  lv_label_set_text(s_updating_title, line);
+  if (s_device.update_percent >= 0) {
+    lv_bar_set_value(s_updating_bar, s_device.update_percent, LV_ANIM_OFF);
+    snprintf(line, sizeof(line), "%d%%", s_device.update_percent);
+  } else {
+    lv_bar_set_value(s_updating_bar, 0, LV_ANIM_OFF);
+    snprintf(line, sizeof(line), "Starting the download");
+  }
+  lv_label_set_text(s_updating_percent, line);
+  if (lv_obj_has_flag(s_updating, LV_OBJ_FLAG_HIDDEN)) {
+    lv_obj_move_foreground(s_updating);
+    lv_obj_clear_flag(s_updating, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+void build_updating(lv_obj_t* parent) {
+  s_updating = plain(parent);
+  lv_obj_set_size(s_updating, SHEET_W, SHEET_H);
+  lv_obj_add_flag(s_updating, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_bg_color(s_updating, lv_color_hex(PUCK_COLOUR_BG), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(s_updating, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_flex_flow(s_updating, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(s_updating, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(s_updating, 24, LV_PART_MAIN);
+  s_updating_title = text(s_updating, FONT_BIG, PUCK_COLOUR_TEXT, "");
+  s_updating_bar = lv_bar_create(s_updating);
+  lv_obj_set_size(s_updating_bar, 560, 12);
+  lv_bar_set_range(s_updating_bar, 0, 100);
+  lv_obj_set_style_bg_color(s_updating_bar, lv_color_hex(COLOUR_CONTROL), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(s_updating_bar, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(s_updating_bar, lv_color_hex(COLOUR_ACCENT), LV_PART_INDICATOR);
+  s_updating_percent = text(s_updating, FONT_ROW, PUCK_COLOUR_TEXT, "");
+  text(s_updating, FONT_HINT, PUCK_COLOUR_MUTED,
+       "Keep the panel switched on. It restarts by itself when this is done.");
+  lv_obj_add_flag(s_updating, LV_OBJ_FLAG_HIDDEN);
+}
+
 }  // namespace
 
 void settings_sheet_create(lv_obj_t* parent, const SheetActions& actions) {
@@ -1628,6 +2063,9 @@ void settings_sheet_create(lv_obj_t* parent, const SheetActions& actions) {
 
   build_restart_bar(s_root);
   build_keypad(s_root);
+  build_picker(s_root);
+  build_join_panel(s_root);
+  build_updating(parent);
 
   lv_obj_add_flag(s_root, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_event_cb(parent, on_gesture, LV_EVENT_GESTURE, nullptr);
@@ -1644,6 +2082,8 @@ void settings_sheet_create(lv_obj_t* parent, const SheetActions& actions) {
   refresh_wifi();
   refresh_data();
   refresh_device();
+  refresh_picker();
+  refresh_join();
 }
 
 void settings_sheet_set_display(const SheetDisplay& display) {
@@ -1691,6 +2131,9 @@ void settings_sheet_set_device(const SheetDevice& device) {
   if (s_open && s_page == SheetPage::Device) {
     refresh_device();
   }
+  // The dot on the Device tab and the install screen matter with the sheet shut.
+  set_hidden(s_device_dot, s_device.update != SheetUpdate::Available);
+  refresh_updating();
 }
 
 void settings_sheet_open(SheetPage page, bool animate) {
@@ -1716,6 +2159,9 @@ void settings_sheet_close(bool animate) {
   s_open = false;
   disarm();
   settings_sheet_show_keypad(false);
+  lv_obj_add_flag(s_picker, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(s_join_panel, LV_OBJ_FLAG_HIDDEN);
+  s_join_requested = false;
   // Whatever a slider was previewing, the panel goes back to its own level.
   if (s_actions.preview_brightness != nullptr) {
     s_actions.preview_brightness(s_display.brightness);
@@ -1749,4 +2195,58 @@ void settings_sheet_show_keypad(bool show) {
   } else {
     lv_obj_add_flag(s_keypad, LV_OBJ_FLAG_HIDDEN);
   }
+}
+
+void settings_sheet_set_scan(const SheetScan& scan) {
+  s_scan = scan;
+  refresh_picker();
+}
+
+void settings_sheet_set_join(const SheetJoinStatus& join) {
+  s_join = join;
+  if (s_join_requested && join.state == SheetJoin::Joined) {
+    // Done: back to the WiFi page, which now shows the new network.
+    s_join_requested = false;
+    s_password[0] = '\0';
+    lv_obj_add_flag(s_join_panel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_picker, LV_OBJ_FLAG_HIDDEN);
+  }
+  refresh_join();
+}
+
+void settings_sheet_show_picker() {
+  if (!s_open) {
+    settings_sheet_open(SheetPage::Wifi, true);
+  } else {
+    lv_obj_set_tile_id(s_pages, static_cast<uint32_t>(SheetPage::Wifi), 0, LV_ANIM_OFF);
+  }
+  s_scan.running = true;
+  refresh_picker();
+  lv_obj_move_foreground(s_picker);
+  lv_obj_clear_flag(s_picker, LV_OBJ_FLAG_HIDDEN);
+  if (s_actions.start_scan != nullptr) {
+    s_actions.start_scan();
+  }
+}
+
+void settings_sheet_show_password(const char* ssid, bool secure) {
+  snprintf(s_join_ssid, sizeof(s_join_ssid), "%s", ssid);
+  s_join_secure = secure;
+  s_password[0] = '\0';
+  s_password_visible = false;
+  s_join_requested = false;
+  s_keyboard_mode = KeyboardMode::Lower;
+  apply_keyboard_mode();
+  refresh_join();
+  lv_obj_move_foreground(s_join_panel);
+  lv_obj_clear_flag(s_join_panel, LV_OBJ_FLAG_HIDDEN);
+}
+
+void settings_sheet_type_password(const char* text) {
+  snprintf(s_password + strlen(s_password), sizeof(s_password) - strlen(s_password), "%s", text);
+  refresh_join();
+}
+
+void settings_sheet_press_join() {
+  start_join();
 }

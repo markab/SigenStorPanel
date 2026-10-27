@@ -415,6 +415,35 @@ SheetScreens s_sheet_screens;
 SheetWifi s_sheet_wifi;
 SheetData s_sheet_data;
 SheetDevice s_sheet_device;
+SheetScan s_sheet_scan;
+SheetJoinStatus s_sheet_join;
+char s_sheet_joining[33] = {};
+
+// What a scan "finds" in the sim.
+void demo_scan() {
+  struct Demo {
+    const char* ssid;
+    int8_t rssi;
+    bool secure;
+  };
+  static const Demo FOUND[] = {
+      {"Home WiFi", -58, true},          {"Home WiFi Garage", -77, true},
+      {"BT-7HQ2KX", -66, true},          {"Neighbour 5G", -71, true},
+      {"Cafe Guest", -80, false},        {"SKY4A1F2", -84, true},
+      {"DIRECT-printer", -86, true},
+  };
+  s_sheet_scan = SheetScan{};
+  for (const Demo& demo : FOUND) {
+    SheetScanResult& result = s_sheet_scan.results[s_sheet_scan.count++];
+    snprintf(result.ssid, sizeof(result.ssid), "%s", demo.ssid);
+    result.rssi = demo.rssi;
+    result.secure = demo.secure;
+    for (int i = 0; i < s_sheet_wifi.saved_count; ++i) {
+      result.saved = result.saved || strcmp(s_sheet_wifi.saved[i].ssid, demo.ssid) == 0;
+    }
+  }
+  settings_sheet_set_scan(s_sheet_scan);
+}
 
 void demo_network(SheetNetwork* network, const char* ssid, int8_t rssi, bool in_range) {
   snprintf(network->ssid, sizeof(network->ssid), "%s", ssid);
@@ -511,9 +540,56 @@ SheetActions sim_sheet_actions() {
     s_sheet_wifi.saved_count = static_cast<uint8_t>(kept);
     settings_sheet_set_wifi(s_sheet_wifi);
   };
-  actions.add_network = []() {
-    printf("[sim] add network: setup portal up\n");
-    ui_set_overlay("WiFi setup", "SigenStorPanel-A1B2C3", "Join this WiFi network from your phone");
+  actions.start_scan = []() {
+    printf("[sim] scan\n");
+    s_sheet_scan.running = true;
+    settings_sheet_set_scan(s_sheet_scan);
+    lv_timer_t* done = lv_timer_create([](lv_timer_t*) { demo_scan(); }, 1200, nullptr);
+    lv_timer_set_repeat_count(done, 1);
+  };
+  // Any password works except "wrongpass", which the sim refuses the way a real
+  // access point would.
+  actions.join_network = [](const char* ssid, const char* password) {
+    printf("[sim] join %s\n", ssid);
+    snprintf(s_sheet_joining, sizeof(s_sheet_joining), "%s", ssid);
+    const bool refuse = strcmp(password, "wrongpass") == 0;
+    s_sheet_join = SheetJoinStatus{};
+    s_sheet_join.state = SheetJoin::Joining;
+    settings_sheet_set_join(s_sheet_join);
+    lv_timer_t* done = lv_timer_create(
+        [](lv_timer_t* timer) {
+          const bool refused = timer->user_data != nullptr;
+          s_sheet_join.state = refused ? SheetJoin::Failed : SheetJoin::Joined;
+          if (refused) {
+            snprintf(s_sheet_join.message, sizeof(s_sheet_join.message), "Wrong password?");
+          } else {
+            // Front of the saved list, as the device's store does it.
+            SheetNetwork joined;
+            snprintf(joined.ssid, sizeof(joined.ssid), "%s", s_sheet_joining);
+            joined.rssi = -60;
+            joined.in_range = true;
+            int kept = 1;
+            SheetNetwork list[SHEET_MAX_NETWORKS];
+            list[0] = joined;
+            for (int i = 0; i < s_sheet_wifi.saved_count && kept < SHEET_MAX_NETWORKS; ++i) {
+              if (strcmp(s_sheet_wifi.saved[i].ssid, s_sheet_joining) != 0) {
+                list[kept++] = s_sheet_wifi.saved[i];
+              }
+            }
+            memcpy(s_sheet_wifi.saved, list, sizeof(list));
+            s_sheet_wifi.saved_count = static_cast<uint8_t>(kept);
+            snprintf(s_sheet_wifi.ssid, sizeof(s_sheet_wifi.ssid), "%s", s_sheet_joining);
+            s_sheet_wifi.connected = true;
+            settings_sheet_set_wifi(s_sheet_wifi);
+          }
+          settings_sheet_set_join(s_sheet_join);
+        },
+        1500, refuse ? reinterpret_cast<void*>(1) : nullptr);
+    lv_timer_set_repeat_count(done, 1);
+  };
+  actions.set_auto_check = [](bool enabled) {
+    printf("[sim] check for updates automatically: %s\n", enabled ? "on" : "off");
+    s_sheet_device.auto_check = enabled;
   };
   actions.set_source = [](DataSource source) {
     s_sheet_data.source = source;
@@ -643,8 +719,7 @@ void cycle_overlay() {
                      "Scan, or open this and paste the enrolment URL", true);
       break;
     case 2:
-      ui_set_overlay("WiFi setup", "SigenStorPanel-A1B2C3",
-                     "Join this WiFi network from your phone");
+      ui_set_overlay("Set up WiFi", nullptr, "Swipe up to choose a network");
       break;
     default:
       ui_set_overlay(nullptr, nullptr, nullptr);
@@ -824,7 +899,39 @@ int run_sheet_shots(const std::string& directory) {
   s_sheet_device.update = SheetUpdate::UpToDate;
   push_sheet_device();
 
+  // Adding a network on the glass: the picker, the password, a refusal, success.
+  settings_sheet_show_picker();
+  run_frames(1500);
+  failures += save_shot(directory, "sheet_3b_picker") ? 0 : 1;
+  settings_sheet_show_password("BT-7HQ2KX", true);
+  settings_sheet_type_password("wrongpass");
+  run_frames(50);
+  failures += save_shot(directory, "sheet_3c_password") ? 0 : 1;
+  settings_sheet_press_join();
+  run_frames(1800);
+  failures += save_shot(directory, "sheet_3d_wrong_password") ? 0 : 1;
+  settings_sheet_show_password("BT-7HQ2KX", true);
+  settings_sheet_type_password("correct horse");
+  settings_sheet_press_join();
+  run_frames(1800);
+  check(s_sheet_wifi.saved_count > 0 && strcmp(s_sheet_wifi.saved[0].ssid, "BT-7HQ2KX") == 0,
+        "a joined network is saved first");
+  failures += save_shot(directory, "sheet_3e_joined") ? 0 : 1;
+
   settings_sheet_close(false);
+
+  // The install screen covers everything, sheet or no sheet.
+  s_sheet_device.update = SheetUpdate::Installing;
+  s_sheet_device.update_percent = 42;
+  snprintf(s_sheet_device.update_version, sizeof(s_sheet_device.update_version), "0.1.0");
+  push_sheet_device();
+  run_frames(50);
+  failures += save_shot(directory, "update_installing") ? 0 : 1;
+  s_sheet_device.update = SheetUpdate::UpToDate;
+  s_sheet_device.update_percent = -1;
+  push_sheet_device();
+  run_frames(50);
+
   return failures;
 }
 

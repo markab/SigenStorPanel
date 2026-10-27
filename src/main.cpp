@@ -94,12 +94,10 @@ void refresh_overlay(bool have_snapshot, const PollStatus& status) {
   ui_set_address(host.c_str(), ip.c_str());
 
   switch (net_state()) {
-    case NetState::Portal:
-      // The network's name is the whole content of this screen — it is what you
-      // go and look for in a list on your phone — so it gets the highlight and
-      // the instruction becomes the caption above it.
-      set_overlay("WiFi setup", net_setup_ap_name(),
-                  "Join this WiFi network from your phone");
+    case NetState::NoNetworks:
+      // The network picker opens over this by itself (settings_bridge.cpp); this
+      // is what is left if someone closes it.
+      set_overlay("Set up WiFi", nullptr, "Swipe up to choose a network");
       return;
     case NetState::Starting:
     case NetState::Connecting:
@@ -395,7 +393,7 @@ void loop() {
 
   net_loop();
 
-  // Started only once connected: the captive portal owns port 80 until then.
+  // Started only once connected: there is nothing to serve it on until then.
   if (net_state() == NetState::Connected && !settings_server_running()) {
     settings_server_begin();
   }

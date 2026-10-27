@@ -83,11 +83,11 @@ if it applies.
 | `src/display_dsi.cpp`, `src/touch_gt911.cpp` | New. This board's backends behind the verbatim `display.h` / `touch.h` contracts. Upstream's `display.cpp` / `touch.cpp` are the equivalents |
 | `src/device/power.{h,cpp}` | No AXP2101, no battery latch, no `ext0` wake on the P4. Same interface, every call a no-op; the backlight is in `display_dsi.cpp` |
 | `src/device/buttons.{h,cpp}` | BOOT only; no PWR key |
-| `src/device/net.{h,cpp}` | `WiFi.setPins()` (the core's `hostedSetPins()`) before WiFi; own setup AP name; later the skinned portal with WiFi plus enrolment link (docs/UX.md) and a saved-network list |
+| `src/device/net.{h,cpp}` | Rewritten. `WiFi.setPins()` before WiFi; no WiFiManager and no captive portal; up to five saved networks, joining the strongest in range (ported from claude-gadget); scans and joins driven from the on-glass picker |
 | `src/device/settings.{h,cpp}` | New NVS namespace; settings that move onto the device |
 | `src/device/settings_bridge.{h,cpp}` | New. Connects the on-device settings sheet (`src/ui_panel/settings_sheet.*`) to the settings store, WiFi, poller and updater. No upstream equivalent |
 | `src/device/settings_server.{h,cpp}` | Trimmed to the deep config (docs/UX.md) |
-| `src/device/updater.cpp` | Pages URL points at SigenStorPanel (already changed) |
+| `src/device/updater.cpp`, `src/device/updater_progress.h` | Pages URL points at SigenStorPanel. Install progress for the on-screen bar, restarts itself after showing 100%, and with "check automatically" on checks after boot and every 12 h |
 | `src/ui/theme.h` | Font roles and spacing for 1024×600 |
 | `src/ui/fonts/`, `tools/generate_fonts.sh` | Larger Montserrat subsets |
 | `src/sim/main.cpp`, `src/sim/sim_backend.{h,cpp}` | 1024×600 window; panel screen set |
@@ -131,6 +131,7 @@ one up, and delete the row once the pull lands and is in the pull log.
 |---|---|---|---|
 | 2026-10-27, Phase 0a | `src/device/sigen_api.cpp`, `solar_api.cpp`, `home_assistant_api.cpp` | The User-Agent is hardcoded as `"SigenStorPuck/" PUCK_FW_VERSION " (ESP32-S3)"`. Build it from two new `board_config.h` macros: a product name and a chip name | The panel identifies itself to the server and Home Assistant as a SigenStorPuck on an S3 |
 | 2026-10-27, Phase 0a | `src/device/modbus_api.cpp` | Calls `NetworkClient::flush()`, which Arduino 3.3 deprecates in favour of `clear()`. Fix it when SigenStorPuck moves to 3.3.8 (step 3 of the plan above). `settings_server.cpp` has the same two calls but is adapted here, so fix those here at the same time | A deprecation warning on every panel build. It still works |
+| 2026-10-27, settings sheet | `src/device/updater.h` | Optional. The panel shows install progress, through its own `updater_progress.h` beside the verbatim header. If the Puck wants a progress ring too, add `updater_progress_percent()` to `updater.h` upstream and delete the panel's extra header | Nothing breaks: the panel's addition sits beside the shared header |
 | 2026-10-27, Phase 0a | `src/display.h`, `src/touch.h` | Their comments describe the CO5300 panel and CST9217 touch. The contract is generic, so describe it generically | Comments name the wrong chips. The functions are right |
 
 ## Pull log

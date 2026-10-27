@@ -16,6 +16,7 @@
 #include "data_source.h"
 
 static constexpr int SHEET_MAX_NETWORKS = 5;
+static constexpr int SHEET_MAX_SCAN = 16;
 static constexpr int SHEET_TEXT = 64;
 
 enum class SheetPage : uint8_t {
@@ -72,6 +73,32 @@ struct SheetData {
   uint32_t poll_s = 5;
 };
 
+// What a scan found, for the network picker.
+struct SheetScanResult {
+  char ssid[33] = {};
+  int8_t rssi = 0;
+  bool secure = false;
+  bool saved = false;  // joined without asking for the password again
+};
+
+struct SheetScan {
+  bool running = false;
+  SheetScanResult results[SHEET_MAX_SCAN];
+  uint8_t count = 0;
+};
+
+enum class SheetJoin : uint8_t {
+  Idle,
+  Joining,
+  Joined,
+  Failed,
+};
+
+struct SheetJoinStatus {
+  SheetJoin state = SheetJoin::Idle;
+  char message[SHEET_TEXT] = {};  // why it failed
+};
+
 enum class SheetUpdate : uint8_t {
   Idle,
   Checking,
@@ -97,6 +124,8 @@ struct SheetDevice {
   uint32_t failures_in_a_row = 0;
   char last_result[32] = {};
   SheetUpdate update = SheetUpdate::Idle;
+  bool auto_check = false;       // check for updates without being asked
+  int8_t update_percent = -1;    // while installing; -1 when not known yet
   char update_version[16] = {};  // the newer version, when there is one
   char update_detail[SHEET_TEXT] = {};
 };
@@ -111,11 +140,16 @@ struct SheetActions {
   void (*set_display)(const SheetDisplay& display) = nullptr;
   void (*set_screens)(const SheetScreens& screens) = nullptr;
   void (*forget_network)(const char* ssid) = nullptr;
-  void (*add_network)() = nullptr;
+  // The picker asks for a fresh list; results arrive by settings_sheet_set_scan().
+  void (*start_scan)() = nullptr;
+  // An empty password means "the saved one" for a saved network, or none for an
+  // open one. Progress arrives by settings_sheet_set_join().
+  void (*join_network)(const char* ssid, const char* password) = nullptr;
   void (*set_source)(DataSource source) = nullptr;
   void (*forget_server)() = nullptr;
   void (*set_modbus_host)(const char* host) = nullptr;
   void (*set_poll_interval)(uint32_t seconds) = nullptr;
+  void (*set_auto_check)(bool enabled) = nullptr;
   void (*check_update)() = nullptr;
   void (*install_update)() = nullptr;
   void (*restart)() = nullptr;
@@ -131,6 +165,8 @@ void settings_sheet_set_screens(const SheetScreens& screens);
 void settings_sheet_set_wifi(const SheetWifi& wifi);
 void settings_sheet_set_data(const SheetData& data);
 void settings_sheet_set_device(const SheetDevice& device);
+void settings_sheet_set_scan(const SheetScan& scan);
+void settings_sheet_set_join(const SheetJoinStatus& join);
 
 void settings_sheet_open(SheetPage page, bool animate);
 void settings_sheet_close(bool animate);
@@ -140,3 +176,15 @@ SheetPage settings_sheet_page();
 // The Modbus address keypad, opened as if the field had been tapped. For the
 // sim's screenshot pass.
 void settings_sheet_show_keypad(bool show);
+
+// Opens the sheet on the WiFi page with the network picker up and a scan
+// started. What the panel shows when it has no saved network to join, and what
+// "Add a network" does.
+void settings_sheet_show_picker();
+
+// The password screen for a network, as if it had been picked. For the sim.
+void settings_sheet_show_password(const char* ssid, bool secure);
+
+// Types into the password field and presses Join, as fingers would. For the sim.
+void settings_sheet_type_password(const char* text);
+void settings_sheet_press_join();

@@ -14,6 +14,7 @@
 #include "ui/ui.h"
 #include "ui_panel/settings_sheet.h"
 #include "updater.h"
+#include "updater_progress.h"
 
 namespace {
 
@@ -78,15 +79,77 @@ void push_wifi() {
     wifi.rssi = static_cast<int8_t>(WiFi.RSSI());
     wifi.channel = static_cast<uint8_t>(WiFi.channel());
     snprintf(wifi.ip, sizeof(wifi.ip), "%s", WiFi.localIP().toString().c_str());
-    // WiFiManager remembers one network, so the saved list is the current one
-    // until the multi-network store lands (docs/UX.md, ported from
-    // claude-gadget's net.cpp).
-    snprintf(wifi.saved[0].ssid, sizeof(wifi.saved[0].ssid), "%s", wifi.ssid);
-    wifi.saved[0].rssi = wifi.rssi;
-    wifi.saved[0].in_range = true;
-    wifi.saved_count = 1;
+  }
+  const int saved = net_saved_count();
+  for (int i = 0; i < saved && i < SHEET_MAX_NETWORKS; ++i) {
+    SheetNetwork& network = wifi.saved[i];
+    const String ssid = net_saved_ssid(i);
+    snprintf(network.ssid, sizeof(network.ssid), "%s", ssid.c_str());
+    // The one in use is in range by definition; the rest as of the last scan.
+    if (wifi.connected && ssid == WiFi.SSID()) {
+      network.rssi = wifi.rssi;
+      network.in_range = true;
+    } else {
+      network.in_range = net_scan_rssi(ssid, &network.rssi);
+    }
+    wifi.saved_count = static_cast<uint8_t>(i + 1);
   }
   settings_sheet_set_wifi(wifi);
+}
+
+bool is_saved(const String& ssid) {
+  for (int i = 0; i < net_saved_count(); ++i) {
+    if (net_saved_ssid(i) == ssid) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Pushed only when something changed, so a picker being scrolled is not rebuilt
+// under the finger once a second.
+void push_scan() {
+  static bool last_running = false;
+  static int last_count = -1;
+  NetScanResult found[SHEET_MAX_SCAN];
+  const int count = net_scan_results(found, SHEET_MAX_SCAN);
+  const bool running = net_scan_running();
+  // A finished scan always passes through running, so the change catches it.
+  if (running == last_running && count == last_count) {
+    return;
+  }
+  last_running = running;
+  last_count = count;
+  SheetScan scan;
+  scan.running = running;
+  for (int i = 0; i < count; ++i) {
+    SheetScanResult& result = scan.results[i];
+    snprintf(result.ssid, sizeof(result.ssid), "%s", found[i].ssid.c_str());
+    result.rssi = found[i].rssi;
+    result.secure = found[i].secure;
+    result.saved = is_saved(found[i].ssid);
+  }
+  scan.count = static_cast<uint8_t>(count);
+  settings_sheet_set_scan(scan);
+}
+
+void push_join() {
+  static NetJoin last = NetJoin::Idle;
+  const NetJoin state = net_join_state();
+  if (state == last) {
+    return;
+  }
+  last = state;
+  SheetJoinStatus join;
+  join.state = state == NetJoin::Joining  ? SheetJoin::Joining
+               : state == NetJoin::Joined ? SheetJoin::Joined
+               : state == NetJoin::Failed ? SheetJoin::Failed
+                                          : SheetJoin::Idle;
+  snprintf(join.message, sizeof(join.message), "%s", net_join_error().c_str());
+  settings_sheet_set_join(join);
+  if (state == NetJoin::Joined) {
+    push_wifi();
+  }
 }
 
 void push_device() {
@@ -133,6 +196,8 @@ void push_device() {
   snprintf(device.update_version, sizeof(device.update_version), "%s",
            update.latest_version.c_str());
   snprintf(device.update_detail, sizeof(device.update_detail), "%s", update.message.c_str());
+  device.update_percent = updater_progress_percent();
+  device.auto_check = settings_get().check_updates;
   settings_sheet_set_device(device);
 }
 
@@ -156,16 +221,14 @@ SheetActions actions() {
     push_screens();
   };
   a.forget_network = [](const char* ssid) {
-    // With one stored network, forgetting it is forgetting WiFi: this restarts
-    // into the setup portal.
-    Serial.printf("[settings] forgetting WiFi network %s\n", ssid);
-    net_forget_wifi();
+    net_forget(String(ssid));
+    push_wifi();
   };
-  a.add_network = []() {
-    // Needs the saved-network list, which is not ported yet.
-    Serial.println("[settings] add network: not available until the saved-network list lands");
-    ui_toast("NOT AVAILABLE YET");
+  a.start_scan = []() { net_scan_start(); };
+  a.join_network = [](const char* ssid, const char* password) {
+    net_join(String(ssid), String(password));
   };
+  a.set_auto_check = [](bool enabled) { settings_set_check_updates(enabled); };
   a.set_source = [](DataSource source) {
     settings_set_source(source);
     push_data();
@@ -213,6 +276,29 @@ void settings_bridge_begin() {
 }
 
 void settings_bridge_loop() {
+  // Scan and join progress at loop rate: someone is watching for it.
+  push_scan();
+  push_join();
+
+  // Nothing saved: put the network picker up, once per time it happens, so a new
+  // panel shows the way to get online without being asked.
+  static bool picker_offered = false;
+  if (net_state() == NetState::NoNetworks) {
+    if (!picker_offered && !settings_sheet_is_open()) {
+      picker_offered = true;
+      settings_sheet_show_picker();
+    }
+  } else {
+    picker_offered = false;
+  }
+
+  // Install progress moves quickly enough to be worth more than once a second.
+  static int8_t last_percent = -1;
+  if (updater_progress_percent() != last_percent) {
+    last_percent = updater_progress_percent();
+    push_device();
+  }
+
   static uint32_t last = 0;
   if (millis() - last < 1000) {
     return;

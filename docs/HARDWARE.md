@@ -167,6 +167,5 @@ The speaker could give alerts later, as claude-gadget's `sound.cpp` does. Not pl
 8. Whether `Arduino_DSI_Display` drives the EK79007 with the Espressif init table, or
    whether `esp_lcd` directly is needed.
 9. Whether opening the CH341 port resets the board on macOS, as it does on the S3s.
-10. Whether `esp_read_mac(ESP_MAC_WIFI_STA)` returns a real MAC on the P4, which has no
-    radio of its own. `net.cpp` builds the setup AP's name from it. If it comes back
-    zero or errors, use the base MAC instead.
+10. Whether scanning (`WiFi.scanNetworks(true)`) works through esp-hosted as it does on an
+    S3. The network picker and roaming both depend on it.

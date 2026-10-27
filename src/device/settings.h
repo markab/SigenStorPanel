@@ -253,7 +253,7 @@ bool settings_is_provisioned();
 String settings_token_masked();
 String settings_ha_token_masked();
 
-// Wipes the server URL and token. WiFi credentials are WiFiManager's and are not
+// Wipes the server URL and token. Saved WiFi networks are net.cpp's and are not
 // touched here.
 void settings_forget_server();
 void settings_forget_home_assistant();

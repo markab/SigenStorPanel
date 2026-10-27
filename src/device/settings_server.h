@@ -5,8 +5,7 @@
 
 #pragma once
 
-// Starts the web server. Call once WiFi is connected — the captive portal uses
-// port 80 too, so starting earlier would collide with it.
+// Starts the web server. Call once WiFi is connected.
 void settings_server_begin();
 
 // Must be called from loop().

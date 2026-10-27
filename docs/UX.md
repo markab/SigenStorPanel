@@ -28,7 +28,20 @@ round screen with no room for controls. A 10.1" touchscreen has room for all of 
 
 ## The model for SigenStorPanel
 
-**1. Portal: WiFi plus one link, and nothing else.**
+**Update 2026-10-27: there is no portal.** WiFi is set up on the glass. With nothing
+saved, the panel opens a network picker; tap a network, type its password on the
+on-screen keyboard, and it is saved (up to five, strongest in range joined). The
+enrolment link and the Home Assistant token are pasted into the web settings page,
+reached by the QR code on the "Not configured" overlay or the sheet's Device page.
+That drops WiFiManager, and with it the riskiest unknown after hosted WiFi itself:
+a soft AP and captive DNS running through the C6. Section 1 below is the plan as
+first written, kept for the reasoning.
+
+Firmware updates are on the Device page too: check now, install with a progress
+screen, and an opt-in "check automatically" (after boot, then every 12 h). A dot on
+the Device tab says one is waiting.
+
+**1. Portal: WiFi plus one link, and nothing else.** *(superseded, see above)*
 - WiFi network and password.
 - **The server enrolment link**: the single pasteable URL SigenStorDisplay hands out,
   which carries both server address and kiosk token. `src/enrol_url.cpp` already parses

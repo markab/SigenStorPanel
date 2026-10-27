@@ -693,8 +693,8 @@ String page(const String& message, bool message_is_error) {
 
   html += "<h2>Danger</h2>";
   // First of the three, and ordered by what each costs you: a restart loses nothing,
-  // forgetting the token means re-enrolling, forgetting WiFi means starting over at
-  // the captive portal.
+  // forgetting the token means re-enrolling, forgetting WiFi means picking a
+  // network on the panel again.
   html += "<form method=post action=/restart><button class=secondary type=submit>";
   html += "Restart Device</button></form>";
   html += "<form method=post action=/forget-server><button class=secondary type=submit>";
@@ -1211,8 +1211,9 @@ void handle_forget_home_assistant() {
 }
 
 void handle_forget_wifi() {
-  send_html(200, "<!doctype html><p>Forgetting WiFi and restarting. Join \"" +
-                     String(net_setup_ap_name()) + "\" to set it up again.");
+  send_html(200,
+            "<!doctype html><p>Forgetting every saved WiFi network and restarting. Choose a "
+            "network on the panel to set it up again.");
   delay(200);
   net_forget_wifi();
 }

@@ -1,4 +1,5 @@
 #include "updater.h"
+#include "updater_progress.h"
 
 #include <HTTPClient.h>
 #include <HTTPUpdate.h>
@@ -50,6 +51,13 @@ constexpr const char* FIRMWARE_URL =
 // requests to GitHub. The "Check now" button bypasses this.
 constexpr uint32_t CHECK_MIN_INTERVAL_MS = 10 * 60 * 1000;
 
+// With "check automatically" on, how often. An update is not urgent, and the
+// check is the device reaching a third party unasked.
+constexpr uint32_t AUTO_CHECK_EVERY_MS = 12 * 60 * 60 * 1000;
+
+// Long enough for the install screen to show 100% before the restart.
+constexpr uint32_t RESTART_AFTER_MS = 1500;
+
 
 // Guards s_status, which the background check writes and the settings page reads.
 // Without it the page could copy a String mid-assignment, which is a use-after-free
@@ -64,6 +72,7 @@ volatile bool s_check_pending = false;
 volatile bool s_apply_pending = false;
 uint32_t s_last_check_ms = 0;
 bool s_ever_checked = false;
+volatile int8_t s_progress = -1;
 
 extern "C" const uint8_t rootca_crt_bundle_start[] asm("_binary_x509_crt_bundle_start");
 extern "C" const uint8_t rootca_crt_bundle_end[] asm("_binary_x509_crt_bundle_end");
@@ -241,8 +250,15 @@ void perform_apply() {
   WiFiClientSecure client;
   attach_bundle(client);
 
-  httpUpdate.rebootOnUpdate(true);
+  // The restart is ours, after the install screen has shown it finished.
+  httpUpdate.rebootOnUpdate(false);
   httpUpdate.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  s_progress = -1;
+  httpUpdate.onProgress([](int done, int total) {
+    if (total > 0) {
+      s_progress = static_cast<int8_t>(static_cast<int64_t>(done) * 100 / total);
+    }
+  });
 
   // Writes into whichever OTA slot is not running. If the new image will not boot,
   // the bootloader falls back to this one — which is the reason for the stock
@@ -250,8 +266,10 @@ void perform_apply() {
   const t_httpUpdate_return result = httpUpdate.update(client, FIRMWARE_URL);
   switch (result) {
     case HTTP_UPDATE_OK:
-      // Not reached: rebootOnUpdate restarts us.
-      status.state = UpdateState::UpToDate;
+      s_progress = 100;
+      Serial.println("[update] written, restarting into it");
+      delay(RESTART_AFTER_MS);
+      ESP.restart();
       break;
     case HTTP_UPDATE_NO_UPDATES:
       status.state = UpdateState::UpToDate;
@@ -264,6 +282,7 @@ void perform_apply() {
       Serial.printf("[update] failed: %s\n", status.message.c_str());
       break;
   }
+  s_progress = -1;
   publish(status);
 }
 
@@ -318,6 +337,11 @@ void updater_service() {
     perform_apply();
     return;
   }
+  // "Check automatically": once the clock is good after boot, then twice a day.
+  if (!s_check_pending && updater_enabled() && net_time_synced() &&
+      (!s_ever_checked || millis() - s_last_check_ms >= AUTO_CHECK_EVERY_MS)) {
+    updater_request_check(false);
+  }
   if (!s_check_pending) {
     return;
   }
@@ -334,4 +358,8 @@ UpdateStatus updater_status() {
     xSemaphoreGive(s_lock);
   }
   return copy;
+}
+
+int8_t updater_progress_percent() {
+  return s_progress;
 }
