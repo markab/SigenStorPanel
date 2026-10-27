@@ -38,7 +38,10 @@ constexpr lv_coord_t LABEL_X = 412;
 // neighbours never touch.
 constexpr lv_coord_t MAX_NODE_PX = 66;
 constexpr lv_coord_t MIN_FLOW_PX = 2;
-constexpr lv_coord_t SLICE_PX = 3;
+// Edge pixels are shaded by how much of them the ribbon covers, sampled this many
+// times across the pixel's width so the steep middle of a curve, where the edge
+// crosses several rows within one column, is shaded too.
+constexpr int EDGE_SAMPLES = 4;
 constexpr lv_opa_t RIBBON_OPA = LV_OPA_60;
 
 enum Source { SRC_SOLAR = 0, SRC_BATTERY, SRC_GRID, SRC_COUNT };
@@ -128,6 +131,27 @@ float smoothstep(float t) {
   return t * t * (3.0f - 2.0f * t);
 }
 
+// The ribbon's top edge at horizontal position x (a float, in screen pixels).
+float ribbon_top_at(const Geometry::Ribbon& ribbon, float x, float x0, float span) {
+  const float rise = static_cast<float>(ribbon.right_top - ribbon.left_top);
+  return static_cast<float>(ribbon.left_top) + rise * smoothstep((x - x0) / span);
+}
+
+// Draws one pixel row of one column at `coverage` of the ribbon's opacity.
+void draw_edge_pixel(lv_draw_ctx_t* ctx, lv_draw_rect_dsc_t* dsc, lv_coord_t x, lv_coord_t y,
+                     float coverage) {
+  if (coverage <= 0.02f) {
+    return;
+  }
+  dsc->bg_opa = static_cast<lv_opa_t>(lroundf(RIBBON_OPA * (coverage > 1.0f ? 1.0f : coverage)));
+  lv_area_t area = {x, y, x, y};
+  lv_draw_rect(ctx, dsc, &area);
+}
+
+// Ribbons are drawn a pixel column at a time: the rows the ribbon covers
+// completely as one rectangle, and the rows its top and bottom edges pass
+// through at partial opacity, so the curves are anti-aliased rather than the
+// staircase that whole-pixel slices draw.
 void draw_ribbons(lv_event_t* event) {
   if (!s_geometry.valid) {
     return;
@@ -137,44 +161,73 @@ void draw_ribbons(lv_event_t* event) {
   lv_area_t coords;
   lv_obj_get_coords(obj, &coords);
 
-  const lv_coord_t x0 = coords.x1;
-  const lv_coord_t x1 = coords.x2;
-  const float span = static_cast<float>(x1 - x0);
+  const float x0 = static_cast<float>(coords.x1);
+  const float span = static_cast<float>(coords.x2 - coords.x1);
   if (span <= 0.0f) {
     return;
   }
+  // The display is drawn in strips; only the columns and rows in this one matter.
+  const lv_area_t& clip = *ctx->clip_area;
+  const lv_coord_t first = clip.x1 > coords.x1 ? clip.x1 : coords.x1;
+  const lv_coord_t last = clip.x2 < coords.x2 ? clip.x2 : coords.x2;
 
   lv_draw_rect_dsc_t dsc;
   lv_draw_rect_dsc_init(&dsc);
-  dsc.bg_opa = RIBBON_OPA;
 
   for (const Geometry::Ribbon& ribbon : s_geometry.ribbon) {
     if (!ribbon.drawn) {
       continue;
     }
     dsc.bg_color = lv_color_hex(ribbon.colour);
-    const float rise = static_cast<float>(ribbon.right_top - ribbon.left_top);
-    for (lv_coord_t x = x0; x <= x1; x += SLICE_PX) {
-      lv_coord_t next = x + SLICE_PX;
-      if (next > x1) {
-        next = x1;
+    const float thickness = static_cast<float>(ribbon.thickness);
+    for (lv_coord_t x = first; x <= last; ++x) {
+      // The edge's height at each sample across this pixel column.
+      float sample[EDGE_SAMPLES];
+      float lowest = 1e9f;
+      float highest = -1e9f;
+      for (int i = 0; i < EDGE_SAMPLES; ++i) {
+        const float sx = static_cast<float>(x) + (i + 0.5f) / EDGE_SAMPLES;
+        sample[i] = ribbon_top_at(ribbon, sx, x0, span);
+        lowest = sample[i] < lowest ? sample[i] : lowest;
+        highest = sample[i] > highest ? sample[i] : highest;
       }
-      const float here = static_cast<float>(ribbon.left_top) +
-                         rise * smoothstep(static_cast<float>(x - x0) / span);
-      const float there = static_cast<float>(ribbon.left_top) +
-                          rise * smoothstep(static_cast<float>(next - x0) / span);
-      const lv_coord_t top = static_cast<lv_coord_t>(lroundf(here < there ? here : there));
-      const lv_coord_t bottom = static_cast<lv_coord_t>(lroundf(here < there ? there : here));
+      const float bottom_lowest = lowest + thickness;
+      const float bottom_highest = highest + thickness;
+      if (bottom_highest < clip.y1 || lowest > clip.y2 + 1) {
+        continue;
+      }
 
-      lv_area_t area;
-      area.x1 = x;
-      area.x2 = x + SLICE_PX - 1;
-      if (area.x2 > x1) {
-        area.x2 = x1;
+      // Rows the top edge passes through and rows the bottom edge does are shaded
+      // by coverage: the part of the row inside [top, top + thickness], averaged
+      // over the samples. One formula for both, so a thin ribbon on a steep slope,
+      // where the two edges share rows, is shaded rather than skipped. The run
+      // between them is solid.
+      const lv_coord_t top_first = static_cast<lv_coord_t>(floorf(lowest));
+      const lv_coord_t top_last = static_cast<lv_coord_t>(ceilf(highest)) - 1;
+      const lv_coord_t bottom_first = static_cast<lv_coord_t>(floorf(bottom_lowest));
+      const lv_coord_t bottom_last = static_cast<lv_coord_t>(ceilf(bottom_highest)) - 1;
+
+      for (lv_coord_t y = top_first; y <= bottom_last; ++y) {
+        if (y > top_last && y < bottom_first) {
+          y = bottom_first - 1;  // skip the solid run; drawn below in one go
+          continue;
+        }
+        float covered = 0.0f;
+        for (int i = 0; i < EDGE_SAMPLES; ++i) {
+          const float from = sample[i] > y ? sample[i] : static_cast<float>(y);
+          const float to = sample[i] + thickness < y + 1 ? sample[i] + thickness
+                                                         : static_cast<float>(y + 1);
+          covered += to > from ? to - from : 0.0f;
+        }
+        draw_edge_pixel(ctx, &dsc, x, y, covered / EDGE_SAMPLES);
       }
-      area.y1 = top;
-      area.y2 = bottom + ribbon.thickness - 1;
-      lv_draw_rect(ctx, &dsc, &area);
+      const lv_coord_t solid_top = top_last + 1;
+      const lv_coord_t solid_bottom = bottom_first - 1;
+      if (solid_top <= solid_bottom) {
+        dsc.bg_opa = RIBBON_OPA;
+        lv_area_t area = {x, solid_top, x, solid_bottom};
+        lv_draw_rect(ctx, &dsc, &area);
+      }
     }
   }
 }

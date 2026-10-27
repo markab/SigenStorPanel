@@ -201,3 +201,8 @@ The speaker could give alerts later, as claude-gadget's `sound.cpp` does. Not pl
 12. Whether the HMMD sends its text output continuously (every ~100 ms) or only on a
     change. The panel treats 10 s of silence as "no sensor". If the sensor only
     reports changes, that check needs the report-mode frames, or OT2, instead.
+13. Whether swiping to and from the flows screen stays smooth. Its anti-aliased
+    ribbons (`draw_ribbons()` in `src/ui_panel/screen_flows.cpp`) issue about ten
+    times the draw calls of the old 3 px slices, on every frame of a swipe. If it
+    drags, render the ribbons once into a PSRAM canvas when the data changes and
+    blit that instead.
