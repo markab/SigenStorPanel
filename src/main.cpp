@@ -127,12 +127,13 @@ void refresh_overlay(bool have_snapshot, const PollStatus& status) {
     // Different instruction per source: there is no enrolment URL to paste when
     // the Puck talks to the plant directly, and telling someone to find one would
     // send them looking for something that does not exist.
+    // The panel's own settings first; the web page is the alternative.
     if (source == DataSource::Modbus) {
-      detail = "Scan, or open this and set the plant's IP address";
+      detail = "Swipe up, then Data, to set the plant's IP address. Or scan this";
     } else if (source == DataSource::HomeAssistant) {
-      detail = "Scan, or open this and configure Home Assistant";
+      detail = "Swipe up, then Data, to set the address and token. Or scan this";
     } else {
-      detail = "Scan, or open this and paste the enrolment URL";
+      detail = "Swipe up, then Data, to enter the enrolment link. Or scan this";
     }
     set_overlay("Not configured", where.c_str(), detail.c_str(), true);
     return;

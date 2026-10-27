@@ -14,9 +14,12 @@
 #include <stdint.h>
 
 #include "data_source.h"
+#include "solar_source.h"
 
 static constexpr int SHEET_MAX_NETWORKS = 5;
 static constexpr int SHEET_MAX_SCAN = 16;
+static constexpr int SHEET_MAX_MODBUS = 4;
+static constexpr int SHEET_MAX_ARRAYS = 4;
 static constexpr int SHEET_TEXT = 64;
 
 enum class SheetPage : uint8_t {
@@ -24,6 +27,7 @@ enum class SheetPage : uint8_t {
   Screens,
   Wifi,
   Data,
+  Solar,
   Device,
   Count,
 };
@@ -63,11 +67,25 @@ struct SheetWifi {
   uint8_t saved_count = 0;
 };
 
+enum class SheetDeviceKind : uint8_t {
+  Inverter,
+  InverterWithDc,  // an inverter with a DC (vehicle) charger
+  AcCharger,
+};
+
+// One device in a Modbus plant, as addressed in the Sigen app. 0 is an empty slot.
+struct SheetModbusDevice {
+  uint8_t slave_id = 0;
+  SheetDeviceKind kind = SheetDeviceKind::Inverter;
+};
+
 struct SheetData {
   DataSource source = DataSource::Server;
   bool server_set = false;
   char server_host[SHEET_TEXT] = {};
   char modbus_host[40] = {};
+  uint8_t modbus_plant_address = 247;
+  SheetModbusDevice modbus_devices[SHEET_MAX_MODBUS];
   bool ha_set = false;
   char ha_host[SHEET_TEXT] = {};
   uint32_t poll_s = 5;
@@ -97,6 +115,31 @@ enum class SheetJoin : uint8_t {
 struct SheetJoinStatus {
   SheetJoin state = SheetJoin::Idle;
   char message[SHEET_TEXT] = {};  // why it failed
+};
+
+// One roof face. kwp 0 is an empty slot.
+struct SheetArray {
+  float kwp = 0.0f;
+  float tilt_deg = 35.0f;
+  float azimuth_deg = 180.0f;  // clockwise from north; 180 is due south
+};
+
+// The panel's own solar forecast, for the sources with no server to supply one.
+struct SheetSolar {
+  bool location_set = false;
+  float latitude = 0.0f;
+  float longitude = 0.0f;
+  float system_loss = 0.85f;
+  float inverter_cap_kw = 0.0f;  // 0: no limit
+  SheetArray arrays[SHEET_MAX_ARRAYS];
+  // Home Assistant only: whether the forecast is off, the panel's, or HA's own.
+  SolarForecastSource ha_source = SolarForecastSource::Disabled;
+};
+
+enum class SheetEntry : uint8_t {
+  EnrolmentLink,
+  HaAddress,
+  HaToken,
 };
 
 enum class SheetUpdate : uint8_t {
@@ -147,6 +190,15 @@ struct SheetActions {
   void (*join_network)(const char* ssid, const char* password) = nullptr;
   void (*set_source)(DataSource source) = nullptr;
   void (*forget_server)() = nullptr;
+  // Typed on the panel's keyboard. Return false, with a reason in `error`, to
+  // keep the entry screen up (a link with no token in it, say).
+  bool (*set_enrolment_link)(const char* link, char* error, size_t error_size) = nullptr;
+  bool (*set_ha_address)(const char* url, char* error, size_t error_size) = nullptr;
+  bool (*set_ha_token)(const char* token, char* error, size_t error_size) = nullptr;
+  void (*set_modbus_devices)(uint8_t plant_address, const SheetModbusDevice* devices,
+                             int count) = nullptr;
+  void (*set_solar)(const SheetSolar& solar) = nullptr;
+  void (*set_ha_forecast_source)(SolarForecastSource source) = nullptr;
   void (*set_modbus_host)(const char* host) = nullptr;
   void (*set_poll_interval)(uint32_t seconds) = nullptr;
   void (*set_auto_check)(bool enabled) = nullptr;
@@ -166,6 +218,7 @@ void settings_sheet_set_wifi(const SheetWifi& wifi);
 void settings_sheet_set_data(const SheetData& data);
 void settings_sheet_set_device(const SheetDevice& device);
 void settings_sheet_set_scan(const SheetScan& scan);
+void settings_sheet_set_solar(const SheetSolar& solar);
 void settings_sheet_set_join(const SheetJoinStatus& join);
 
 void settings_sheet_open(SheetPage page, bool animate);
@@ -184,6 +237,12 @@ void settings_sheet_show_picker();
 
 // The password screen for a network, as if it had been picked. For the sim.
 void settings_sheet_show_password(const char* ssid, bool secure);
+
+// Opens the keyboard for a link, address or token, as its button would. For the sim.
+void settings_sheet_show_entry(SheetEntry entry);
+// The Modbus device editor, and one solar array's editor. For the sim.
+void settings_sheet_show_devices();
+void settings_sheet_show_array(int index);
 
 // Types into the password field and presses Join, as fingers would. For the sim.
 void settings_sheet_type_password(const char* text);

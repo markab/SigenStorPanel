@@ -6,48 +6,16 @@
 #include "board_config.h"
 #include "qr_block.h"
 #include "theme.h"
+#include "settings_sheet_internal.h"
 #include "ui.h"
 
 namespace {
 
-// ------------------------------------------------------------------ layout ---
-
-constexpr lv_coord_t SHEET_W = PUCK_LCD_WIDTH;
-constexpr lv_coord_t SHEET_H = PUCK_LCD_HEIGHT;
-constexpr lv_coord_t HEADER_H = 84;
-constexpr lv_coord_t PAGE_PAD_X = 40;
-constexpr lv_coord_t PAGE_PAD_TOP = 8;
-constexpr lv_coord_t CARD_GAP = 24;
-constexpr lv_coord_t CARD_H = 420;
-constexpr lv_coord_t CARD_PAD = 24;
-constexpr lv_coord_t RESTART_BAR_H = 52;
-
-// A shade off black, so the sheet reads as something laid over the screens
-// rather than as another screen. Cards a step lighter again.
-constexpr uint32_t COLOUR_SHEET = 0x0E0E10;
-constexpr uint32_t COLOUR_CARD = 0x1C1C1E;
-constexpr uint32_t COLOUR_CONTROL = 0x3A3A3C;
-// The grid's blue doubles as the one accent for anything you can touch. The data
-// screens never put grid blue on a control, so it cannot be mistaken for data.
-constexpr uint32_t COLOUR_ACCENT = PUCK_COLOUR_GRID;
-
-constexpr uint32_t OPEN_MS = 220;
-// Left open and untouched, the sheet gets out of the way. A wall display parked
-// on its settings is not doing its job.
-constexpr uint32_t IDLE_CLOSE_MS = 60000;
-// How long a "tap again to confirm" button stays armed.
-constexpr uint32_t CONFIRM_MS = 3000;
-
-// Read across a room is the data screens' job. These are read at arm's length,
-// with a finger on the glass, so one size larger than the theme's body text.
-#define FONT_CAPTION (&puck_font_18)
-#define FONT_HINT (&puck_font_18)
-#define FONT_TEXT (&puck_font_20)
-#define FONT_ROW (&puck_font_24)
-#define FONT_BIG (&puck_font_32)
+using namespace sheet_kit;
 
 constexpr int PAGE_COUNT = static_cast<int>(SheetPage::Count);
-const char* const PAGE_NAMES[PAGE_COUNT] = {"Display", "Screens", "WiFi", "Data", "Device"};
+const char* const PAGE_NAMES[PAGE_COUNT] = {"Display", "Screens", "WiFi", "Data", "Solar",
+                                            "Device"};
 
 // Steps for the sliders that pick from a list rather than a range.
 constexpr uint32_t DIM_AFTER_STEPS[] = {0, 15, 30, 60, 120, 300, 600, 1800};
@@ -143,6 +111,7 @@ lv_obj_t* s_modbus_field = nullptr;
 lv_obj_t* s_modbus_value = nullptr;
 lv_obj_t* s_ha_host = nullptr;
 lv_obj_t* s_ha_token = nullptr;
+lv_obj_t* s_modbus_devices = nullptr;
 lv_obj_t* s_poll_slider = nullptr;
 lv_obj_t* s_poll_value = nullptr;
 
@@ -176,10 +145,6 @@ lv_obj_t* s_web_address = nullptr;
 char s_qr_url[64] = {};
 
 // Keypad, for the Modbus plant address.
-lv_obj_t* s_keypad = nullptr;
-lv_obj_t* s_keypad_field = nullptr;
-lv_obj_t* s_keypad_error = nullptr;
-char s_keypad_text[16] = {};
 
 // Network picker and the password screen.
 SheetScan s_scan;
@@ -200,7 +165,13 @@ lv_obj_t* s_join_button = nullptr;
 lv_obj_t* s_keyboard = nullptr;
 char s_join_ssid[33] = {};
 bool s_join_secure = true;
-char s_password[64] = {};
+// Long enough for an enrolment link or a Home Assistant token, not just a
+// WiFi password: the same screen types all of them.
+char s_password[256] = {};
+// What the keyboard screen is for.
+enum class EntryKind : uint8_t { WifiPassword, EnrolmentLink, HaAddress, HaToken };
+EntryKind s_entry_kind = EntryKind::WifiPassword;
+char s_entry_error[64] = {};
 bool s_password_visible = false;
 // The join this panel asked for, so a status left over from an earlier one is
 // not mistaken for its answer.
@@ -217,313 +188,6 @@ lv_obj_t* s_updating_percent = nullptr;
 
 lv_obj_t* s_auto_check = nullptr;
 lv_obj_t* s_device_dot = nullptr;
-
-// "Tap again to confirm": one button armed at a time.
-lv_obj_t* s_armed = nullptr;
-char s_armed_idle_text[32] = {};
-lv_timer_t* s_armed_timer = nullptr;
-
-// ----------------------------------------------------------- small helpers ---
-
-lv_obj_t* plain(lv_obj_t* parent) {
-  lv_obj_t* obj = lv_obj_create(parent);
-  lv_obj_remove_style_all(obj);
-  lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
-  return obj;
-}
-
-lv_obj_t* text(lv_obj_t* parent, const lv_font_t* font, uint32_t colour, const char* value) {
-  lv_obj_t* label = lv_label_create(parent);
-  lv_obj_set_style_text_font(label, font, LV_PART_MAIN);
-  lv_obj_set_style_text_color(label, lv_color_hex(colour), LV_PART_MAIN);
-  lv_label_set_text(label, value);
-  return label;
-}
-
-// The same small spaced capitals the data screens use for their headings.
-lv_obj_t* caption(lv_obj_t* parent, const char* value) {
-  lv_obj_t* label = text(parent, FONT_CAPTION, PUCK_COLOUR_MUTED, value);
-  lv_obj_set_style_text_letter_space(label, 2, LV_PART_MAIN);
-  return label;
-}
-
-lv_obj_t* hint(lv_obj_t* parent, const char* value) {
-  lv_obj_t* label = text(parent, FONT_HINT, PUCK_COLOUR_MUTED, value);
-  lv_obj_set_width(label, LV_PCT(100));
-  lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
-  return label;
-}
-
-lv_obj_t* card(lv_obj_t* parent, lv_coord_t width, lv_coord_t height) {
-  lv_obj_t* obj = plain(parent);
-  lv_obj_set_size(obj, width, height);
-  lv_obj_set_style_bg_color(obj, lv_color_hex(COLOUR_CARD), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_radius(obj, 20, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(obj, CARD_PAD, LV_PART_MAIN);
-  lv_obj_set_flex_flow(obj, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(obj, 12, LV_PART_MAIN);
-  return obj;
-}
-
-// A label on the left, a value or control on the right.
-lv_obj_t* row(lv_obj_t* parent) {
-  lv_obj_t* obj = plain(parent);
-  lv_obj_set_size(obj, LV_PCT(100), LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(obj, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(obj, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER,
-                        LV_FLEX_ALIGN_CENTER);
-  return obj;
-}
-
-lv_obj_t* spacer(lv_obj_t* parent) {
-  lv_obj_t* obj = plain(parent);
-  lv_obj_set_width(obj, LV_PCT(100));
-  lv_obj_set_flex_grow(obj, 1);
-  return obj;
-}
-
-lv_obj_t* divider(lv_obj_t* parent) {
-  lv_obj_t* obj = plain(parent);
-  lv_obj_set_size(obj, LV_PCT(100), 1);
-  lv_obj_set_style_bg_color(obj, lv_color_hex(PUCK_COLOUR_TRACK), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
-  return obj;
-}
-
-// Sliders and switches are dragged, and a drag that wanders 50 px vertically
-// would otherwise read as the swipe that closes the sheet.
-void keep_gestures(lv_obj_t* obj) {
-  lv_obj_clear_flag(obj, LV_OBJ_FLAG_GESTURE_BUBBLE);
-}
-
-lv_obj_t* slider(lv_obj_t* parent, int32_t min, int32_t max) {
-  lv_obj_t* obj = lv_slider_create(parent);
-  lv_obj_set_size(obj, LV_PCT(100), 10);
-  lv_slider_set_range(obj, min, max);
-  lv_obj_set_style_bg_color(obj, lv_color_hex(COLOUR_CONTROL), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(obj, lv_color_hex(COLOUR_ACCENT), LV_PART_INDICATOR);
-  lv_obj_set_style_bg_color(obj, lv_color_hex(PUCK_COLOUR_TEXT), LV_PART_KNOB);
-  lv_obj_set_style_pad_all(obj, 10, LV_PART_KNOB);
-  lv_obj_set_style_shadow_width(obj, 0, LV_PART_KNOB);
-  // A taller hit area than a 10 px bar gives a finger.
-  lv_obj_set_ext_click_area(obj, 18);
-  keep_gestures(obj);
-  return obj;
-}
-
-lv_obj_t* toggle(lv_obj_t* parent) {
-  lv_obj_t* obj = lv_switch_create(parent);
-  lv_obj_set_size(obj, 64, 34);
-  lv_obj_set_style_bg_color(obj, lv_color_hex(COLOUR_CONTROL), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(obj, lv_color_hex(COLOUR_ACCENT),
-                            static_cast<lv_style_selector_t>(LV_PART_INDICATOR) | LV_STATE_CHECKED);
-  lv_obj_set_style_bg_color(obj, lv_color_hex(PUCK_COLOUR_TEXT), LV_PART_KNOB);
-  lv_obj_set_style_opa(obj, LV_OPA_40, LV_STATE_DISABLED);
-  keep_gestures(obj);
-  return obj;
-}
-
-void set_checked(lv_obj_t* obj, bool on) {
-  if (on) {
-    lv_obj_add_state(obj, LV_STATE_CHECKED);
-  } else {
-    lv_obj_clear_state(obj, LV_STATE_CHECKED);
-  }
-}
-
-void set_disabled(lv_obj_t* obj, bool disabled) {
-  if (disabled) {
-    lv_obj_add_state(obj, LV_STATE_DISABLED);
-  } else {
-    lv_obj_clear_state(obj, LV_STATE_DISABLED);
-  }
-}
-
-void set_hidden(lv_obj_t* obj, bool hidden) {
-  if (hidden) {
-    lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
-  } else {
-    lv_obj_clear_flag(obj, LV_OBJ_FLAG_HIDDEN);
-  }
-}
-
-lv_obj_t* button(lv_obj_t* parent, const char* label, uint32_t background, uint32_t foreground) {
-  lv_obj_t* obj = lv_btn_create(parent);
-  lv_obj_set_height(obj, LV_SIZE_CONTENT);
-  lv_obj_set_style_bg_color(obj, lv_color_hex(background), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_radius(obj, 14, LV_PART_MAIN);
-  lv_obj_set_style_shadow_width(obj, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_hor(obj, 22, LV_PART_MAIN);
-  lv_obj_set_style_pad_ver(obj, 12, LV_PART_MAIN);
-  lv_obj_set_style_opa(obj, LV_OPA_40, LV_STATE_DISABLED);
-  lv_obj_t* inner = text(obj, FONT_TEXT, foreground, label);
-  lv_obj_center(inner);
-  return obj;
-}
-
-void button_set_text(lv_obj_t* obj, const char* label) {
-  lv_label_set_text(lv_obj_get_child(obj, 0), label);
-}
-
-// Four bars, lit by signal strength. Drawn rather than taken from a symbol
-// font: the Montserrat subsets carry no icons.
-lv_obj_t* signal_bars(lv_obj_t* parent) {
-  lv_obj_t* obj = plain(parent);
-  lv_obj_set_size(obj, 30, 22);
-  for (int i = 0; i < 4; ++i) {
-    lv_obj_t* bar = plain(obj);
-    const lv_coord_t height = 7 + i * 5;
-    lv_obj_set_size(bar, 5, height);
-    lv_obj_set_pos(bar, i * 8, 22 - height);
-    lv_obj_set_style_radius(bar, 2, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
-  }
-  return obj;
-}
-
-int bars_for(int8_t rssi) {
-  if (rssi >= -55) return 4;
-  if (rssi >= -65) return 3;
-  if (rssi >= -75) return 2;
-  if (rssi >= -85) return 1;
-  return 0;
-}
-
-const char* signal_word(int8_t rssi) {
-  switch (bars_for(rssi)) {
-    case 4:
-      return "Excellent";
-    case 3:
-      return "Good";
-    case 2:
-      return "Fair";
-    default:
-      return "Weak";
-  }
-}
-
-void set_bars(lv_obj_t* bars, int8_t rssi, bool present) {
-  const int lit = present ? bars_for(rssi) : 0;
-  for (int i = 0; i < 4; ++i) {
-    lv_obj_set_style_bg_color(lv_obj_get_child(bars, i),
-                              lv_color_hex(i < lit ? PUCK_COLOUR_TEXT : COLOUR_CONTROL),
-                              LV_PART_MAIN);
-  }
-}
-
-void format_bytes(char* out, size_t size, uint32_t bytes) {
-  if (bytes >= 1024u * 1024u) {
-    snprintf(out, size, "%.1f MB", bytes / (1024.0 * 1024.0));
-  } else {
-    snprintf(out, size, "%u KB", static_cast<unsigned>(bytes / 1024u));
-  }
-}
-
-void format_duration(char* out, size_t size, uint32_t seconds) {
-  if (seconds < 60) {
-    snprintf(out, size, "%u s", static_cast<unsigned>(seconds));
-  } else if (seconds < 3600) {
-    snprintf(out, size, "%u min", static_cast<unsigned>(seconds / 60));
-  } else if (seconds < 86400) {
-    snprintf(out, size, "%u h %u min", static_cast<unsigned>(seconds / 3600),
-             static_cast<unsigned>(seconds % 3600 / 60));
-  } else {
-    snprintf(out, size, "%u d %u h", static_cast<unsigned>(seconds / 86400),
-             static_cast<unsigned>(seconds % 86400 / 3600));
-  }
-}
-
-void format_step(char* out, size_t size, uint32_t seconds) {
-  if (seconds == 0) {
-    snprintf(out, size, "Never");
-  } else if (seconds < 60) {
-    snprintf(out, size, "%u s", static_cast<unsigned>(seconds));
-  } else {
-    snprintf(out, size, "%u min", static_cast<unsigned>(seconds / 60));
-  }
-}
-
-void format_clock(char* out, size_t size, uint16_t minutes) {
-  snprintf(out, size, "%02u:%02u", static_cast<unsigned>(minutes / 60 % 24),
-           static_cast<unsigned>(minutes % 60));
-}
-
-template <size_t N>
-int nearest_step(const uint32_t (&steps)[N], uint32_t value) {
-  int best = 0;
-  for (size_t i = 0; i < N; ++i) {
-    if (steps[i] <= value) {
-      best = static_cast<int>(i);
-    }
-  }
-  return best;
-}
-
-// Brightness is stored 0..255 and shown as a percentage.
-int to_percent(uint8_t level) {
-  return (level * 100 + 127) / 255;
-}
-
-uint8_t from_percent(int32_t percent) {
-  return static_cast<uint8_t>((percent * 255 + 50) / 100);
-}
-
-const char* screen_name(PuckScreen screen) {
-  switch (screen) {
-    case PUCK_SCREEN_POWER:
-      return "Live power";
-    case PUCK_SCREEN_BATTERY:
-      return "Battery";
-    case PUCK_SCREEN_SOLAR:
-      return "Solar";
-    case PUCK_SCREEN_LOAD:
-      return "Home use";
-    case PUCK_SCREEN_GRID:
-      return "Grid";
-    case PUCK_SCREEN_FLOWS:
-      return "Energy flows";
-    case PUCK_SCREEN_COST:
-      return "Cost";
-    default:
-      return "";
-  }
-}
-
-// ----------------------------------------------------------------- confirm ---
-
-void disarm() {
-  if (s_armed != nullptr) {
-    button_set_text(s_armed, s_armed_idle_text);
-    lv_obj_set_style_bg_color(s_armed, lv_color_hex(COLOUR_CONTROL), LV_PART_MAIN);
-    s_armed = nullptr;
-  }
-  if (s_armed_timer != nullptr) {
-    lv_timer_del(s_armed_timer);
-    s_armed_timer = nullptr;
-  }
-}
-
-// True on the second tap. The first only arms the button: forgetting a network
-// or restarting is not something a stray touch on a wall panel should do.
-bool confirmed(lv_obj_t* obj, const char* armed_text) {
-  if (s_armed == obj) {
-    disarm();
-    return true;
-  }
-  disarm();
-  s_armed = obj;
-  snprintf(s_armed_idle_text, sizeof(s_armed_idle_text), "%s",
-           lv_label_get_text(lv_obj_get_child(obj, 0)));
-  button_set_text(obj, armed_text);
-  lv_obj_set_style_bg_color(obj, lv_color_hex(PUCK_COLOUR_ALARM), LV_PART_MAIN);
-  s_armed_timer = lv_timer_create([](lv_timer_t*) { disarm(); }, CONFIRM_MS, nullptr);
-  lv_timer_set_repeat_count(s_armed_timer, 1);
-  return false;
-}
 
 // ----------------------------------------------------------------- refresh ---
 
@@ -694,7 +358,10 @@ void refresh_data() {
       lv_color_hex(s_data.modbus_host[0] != '\0' ? PUCK_COLOUR_TEXT : PUCK_COLOUR_MUTED),
       LV_PART_MAIN);
 
-  lv_label_set_text(s_ha_host, s_data.ha_set ? s_data.ha_host : "--");
+  char devices[48];
+  lv_label_set_text(s_modbus_devices, plant_devices_summary(s_data, devices, sizeof(devices)));
+
+  lv_label_set_text(s_ha_host, s_data.ha_host[0] != '\0' ? s_data.ha_host : "--");
   lv_label_set_text(s_ha_token, s_data.ha_set ? "Set" : "Not set");
   lv_obj_set_style_text_color(s_ha_token,
                               lv_color_hex(s_data.ha_set ? PUCK_COLOUR_BATTERY : PUCK_COLOUR_WARN),
@@ -1048,69 +715,21 @@ void on_restart(lv_event_t* event) {
 
 // ------------------------------------------------------------------ keypad ---
 
-bool valid_ipv4(const char* value) {
-  int parts = 0;
-  int digits = 0;
-  int number = 0;
-  for (const char* c = value;; ++c) {
-    if (*c >= '0' && *c <= '9') {
-      number = number * 10 + (*c - '0');
-      if (++digits > 3 || number > 255) {
-        return false;
-      }
-    } else if (*c == '.' || *c == '\0') {
-      if (digits == 0) {
-        return false;
-      }
-      ++parts;
-      digits = 0;
-      number = 0;
-      if (*c == '\0') {
-        break;
-      }
-    } else {
-      return false;
-    }
+bool save_modbus_host(const char* value, char* error, size_t error_size) {
+  if (!valid_ipv4(value)) {
+    snprintf(error, error_size, "That is not an IP address");
+    return false;
   }
-  return parts == 4;
+  snprintf(s_data.modbus_host, sizeof(s_data.modbus_host), "%s", value);
+  if (s_actions.set_modbus_host != nullptr) {
+    s_actions.set_modbus_host(s_data.modbus_host);
+  }
+  refresh_data();
+  return true;
 }
 
-void refresh_keypad() {
-  lv_label_set_text(s_keypad_field, s_keypad_text[0] != '\0' ? s_keypad_text : " ");
-}
-
-void on_keypad(lv_event_t* event) {
-  lv_obj_t* matrix = lv_event_get_target(event);
-  const uint16_t id = lv_btnmatrix_get_selected_btn(matrix);
-  if (id == LV_BTNMATRIX_BTN_NONE) {
-    return;
-  }
-  const char* key = lv_btnmatrix_get_btn_text(matrix, id);
-  const size_t length = strlen(s_keypad_text);
-  lv_label_set_text(s_keypad_error, "");
-
-  if (strcmp(key, "Cancel") == 0) {
-    settings_sheet_show_keypad(false);
-  } else if (strcmp(key, "Save") == 0) {
-    if (!valid_ipv4(s_keypad_text)) {
-      lv_label_set_text(s_keypad_error, "That is not an IP address");
-      return;
-    }
-    snprintf(s_data.modbus_host, sizeof(s_data.modbus_host), "%s", s_keypad_text);
-    if (s_actions.set_modbus_host != nullptr) {
-      s_actions.set_modbus_host(s_data.modbus_host);
-    }
-    settings_sheet_show_keypad(false);
-    refresh_data();
-  } else if (strcmp(key, "Del") == 0) {
-    if (length > 0) {
-      s_keypad_text[length - 1] = '\0';
-    }
-  } else if (length + 1 < sizeof(s_keypad_text)) {
-    s_keypad_text[length] = key[0];
-    s_keypad_text[length + 1] = '\0';
-  }
-  refresh_keypad();
+void open_modbus_keypad() {
+  keypad_open("PLANT ADDRESS", s_data.modbus_host, KeypadMode::Address, save_modbus_host);
 }
 
 // ------------------------------------------------------------- open, close ---
@@ -1135,7 +754,7 @@ void slide(int32_t from, int32_t to, lv_anim_ready_cb_t done) {
 }
 
 bool modal_open() {
-  return !lv_obj_has_flag(s_keypad, LV_OBJ_FLAG_HIDDEN) ||
+  return keypad_is_open() || plant_modal_open() ||
          !lv_obj_has_flag(s_picker, LV_OBJ_FLAG_HIDDEN) ||
          !lv_obj_has_flag(s_join_panel, LV_OBJ_FLAG_HIDDEN);
 }
@@ -1411,6 +1030,14 @@ void build_wifi(lv_obj_t* tile) {
   hint(right, "Pick a network and type its password here. Up to five are remembered.");
 }
 
+lv_obj_t* button_row(lv_obj_t* parent) {
+  lv_obj_t* line = plain(parent);
+  lv_obj_set_size(line, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(line, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(line, 10, LV_PART_MAIN);
+  return line;
+}
+
 void build_data(lv_obj_t* tile) {
   lv_obj_t* body = page_body(tile);
 
@@ -1464,10 +1091,15 @@ void build_data(lv_obj_t* tile) {
   s_source_detail[0] = server;
   s_server_host = detail(server, "Server");
   s_server_link = detail(server, "Enrolment link");
-  s_server_forget = button(server, "Forget link", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  lv_obj_t* server_buttons = button_row(server);
+  lv_obj_t* enter_link = button(server_buttons, "Enter link", COLOUR_ACCENT, PUCK_COLOUR_TEXT);
+  lv_obj_add_event_cb(
+      enter_link, [](lv_event_t*) { settings_sheet_show_entry(SheetEntry::EnrolmentLink); },
+      LV_EVENT_CLICKED, nullptr);
+  s_server_forget = button(server_buttons, "Forget link", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
   lv_obj_add_event_cb(s_server_forget, on_forget_server, LV_EVENT_CLICKED, nullptr);
-  hint(server, "To set a new link, paste it into the web settings page. Its address "
-               "and QR code are on the Device page.");
+  hint(server, "The link from SigenStor Display's Admin page. It can also be pasted on the "
+               "web settings page (Device page).");
 
   lv_obj_t* modbus = detail_box();
   s_source_detail[1] = modbus;
@@ -1478,17 +1110,37 @@ void build_data(lv_obj_t* tile) {
   s_modbus_value = lv_obj_get_child(s_modbus_field, 0);
   lv_obj_set_style_text_font(s_modbus_value, FONT_ROW, LV_PART_MAIN);
   lv_obj_add_event_cb(
-      s_modbus_field, [](lv_event_t*) { settings_sheet_show_keypad(true); }, LV_EVENT_CLICKED,
+      s_modbus_field, [](lv_event_t*) { open_modbus_keypad(); }, LV_EVENT_CLICKED,
       nullptr);
+  lv_obj_t* devices_line = row(modbus);
+  text(devices_line, FONT_TEXT, PUCK_COLOUR_MUTED, "Devices");
+  lv_obj_t* devices_end = plain(devices_line);
+  lv_obj_set_size(devices_end, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(devices_end, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(devices_end, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(devices_end, 14, LV_PART_MAIN);
+  s_modbus_devices = text(devices_end, FONT_TEXT, PUCK_COLOUR_TEXT, "");
+  lv_obj_t* edit_devices = button(devices_end, "Edit", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  lv_obj_set_style_pad_ver(edit_devices, 8, LV_PART_MAIN);
+  lv_obj_add_event_cb(edit_devices, [](lv_event_t*) { plant_open_devices(); }, LV_EVENT_CLICKED,
+                      nullptr);
   hint(modbus, "The gateway or inverter's IP. Allow this panel's IP for Modbus in the "
-               "Sigen app. Inverters are listed on the web page.");
+               "Sigen app.");
 
   lv_obj_t* ha = detail_box();
   s_source_detail[2] = ha;
   s_ha_host = detail(ha, "Home Assistant");
   s_ha_token = detail(ha, "Access token");
-  hint(ha, "The address, token and entities are set on the web settings page. Its "
-           "address and QR code are on the Device page.");
+  lv_obj_t* ha_buttons = button_row(ha);
+  lv_obj_t* set_address = button(ha_buttons, "Set address", COLOUR_ACCENT, PUCK_COLOUR_TEXT);
+  lv_obj_add_event_cb(
+      set_address, [](lv_event_t*) { settings_sheet_show_entry(SheetEntry::HaAddress); },
+      LV_EVENT_CLICKED, nullptr);
+  lv_obj_t* set_token = button(ha_buttons, "Set token", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  lv_obj_add_event_cb(
+      set_token, [](lv_event_t*) { settings_sheet_show_entry(SheetEntry::HaToken); },
+      LV_EVENT_CLICKED, nullptr);
+  hint(ha, "Which entities to read is set on the web settings page (Device page).");
 
   lv_obj_t* right = card(body, 360, CARD_H);
   caption(right, "READING");
@@ -1613,55 +1265,6 @@ void build_restart_bar(lv_obj_t* parent) {
   lv_obj_add_flag(s_restart_bar, LV_OBJ_FLAG_HIDDEN);
 }
 
-void build_keypad(lv_obj_t* parent) {
-  s_keypad = plain(parent);
-  lv_obj_set_size(s_keypad, SHEET_W, SHEET_H);
-  lv_obj_add_flag(s_keypad, LV_OBJ_FLAG_CLICKABLE);  // swallow taps behind it
-  lv_obj_set_style_bg_color(s_keypad, lv_color_hex(PUCK_COLOUR_BG), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(s_keypad, LV_OPA_70, LV_PART_MAIN);
-
-  lv_obj_t* box = card(s_keypad, 440, LV_SIZE_CONTENT);
-  lv_obj_center(box);
-  lv_obj_set_style_border_width(box, 1, LV_PART_MAIN);
-  lv_obj_set_style_border_color(box, lv_color_hex(COLOUR_CONTROL), LV_PART_MAIN);
-  caption(box, "PLANT ADDRESS");
-  s_keypad_field = text(box, FONT_BIG, PUCK_COLOUR_TEXT, "");
-  lv_obj_set_width(s_keypad_field, LV_PCT(100));
-  lv_obj_set_style_border_side(s_keypad_field, LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
-  lv_obj_set_style_border_width(s_keypad_field, 2, LV_PART_MAIN);
-  lv_obj_set_style_border_color(s_keypad_field, lv_color_hex(COLOUR_ACCENT), LV_PART_MAIN);
-  lv_obj_set_style_pad_bottom(s_keypad_field, 6, LV_PART_MAIN);
-  s_keypad_error = text(box, FONT_HINT, PUCK_COLOUR_ALARM, "");
-
-  static const char* KEYS[] = {"1",   "2",      "3",    "\n", "4", "5",    "6", "\n",
-                                     "7",   "8",      "9",    "\n", ".", "0",    "Del", "\n",
-                                     "Cancel", "Save", ""};
-  lv_obj_t* matrix = lv_btnmatrix_create(box);
-  lv_btnmatrix_set_map(matrix, KEYS);
-  lv_obj_set_size(matrix, LV_PCT(100), 330);
-  lv_obj_set_style_bg_opa(matrix, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_border_width(matrix, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_all(matrix, 0, LV_PART_MAIN);
-  lv_obj_set_style_pad_gap(matrix, 8, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(matrix, lv_color_hex(COLOUR_CONTROL), LV_PART_ITEMS);
-  lv_obj_set_style_bg_opa(matrix, LV_OPA_COVER, LV_PART_ITEMS);
-  lv_obj_set_style_radius(matrix, 12, LV_PART_ITEMS);
-  lv_obj_set_style_shadow_width(matrix, 0, LV_PART_ITEMS);
-  lv_obj_set_style_border_width(matrix, 0, LV_PART_ITEMS);
-  lv_obj_set_style_text_font(matrix, FONT_ROW, LV_PART_ITEMS);
-  lv_obj_set_style_text_color(matrix, lv_color_hex(PUCK_COLOUR_TEXT), LV_PART_ITEMS);
-  // Save is the last key.
-  lv_btnmatrix_set_btn_ctrl(matrix, 13, LV_BTNMATRIX_CTRL_CHECKED);
-  const lv_style_selector_t checked =
-      static_cast<lv_style_selector_t>(LV_PART_ITEMS) | LV_STATE_CHECKED;
-  lv_obj_set_style_bg_color(matrix, lv_color_hex(COLOUR_ACCENT), checked);
-  keep_gestures(matrix);
-  lv_obj_add_event_cb(matrix, on_keypad, LV_EVENT_VALUE_CHANGED, nullptr);
-
-  lv_obj_add_flag(s_keypad, LV_OBJ_FLAG_HIDDEN);
-}
-
-
 // ------------------------------------------------------- picker and joining ---
 
 // Four layouts, like a phone's. Shift is one-shot: it drops back to lower case
@@ -1674,6 +1277,16 @@ const char* KEYS_UPPER[] = {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "\
                             "A", "S", "D", "F", "G", "H", "J", "K", "L", "\n",
                             "Shift", "Z", "X", "C", "V", "B", "N", "M", "Del", "\n",
                             "123", "space", ".", ""};
+// For links and tokens: the bottom row trades width of space bar for the
+// characters every URL and token is full of.
+const char* KEYS_LOWER_URL[] = {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "\n",
+                                "a", "s", "d", "f", "g", "h", "j", "k", "l", "\n",
+                                "Shift", "z", "x", "c", "v", "b", "n", "m", "Del", "\n",
+                                "123", "/", ":", "space", ".", "-", "_", ""};
+const char* KEYS_UPPER_URL[] = {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "\n",
+                                "A", "S", "D", "F", "G", "H", "J", "K", "L", "\n",
+                                "Shift", "Z", "X", "C", "V", "B", "N", "M", "Del", "\n",
+                                "123", "/", ":", "space", ".", "-", "_", ""};
 const char* KEYS_DIGITS[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
                              "-", "/", ":", ";", "(", ")", "$", "&", "@", "\"", "\n",
                              "#+=", ".", ",", "?", "!", "'", "_", "Del", "\n",
@@ -1689,10 +1302,12 @@ bool is_special_key(const char* key) {
 }
 
 void apply_keyboard_mode() {
-  const char** map = s_keyboard_mode == KeyboardMode::Upper    ? KEYS_UPPER
+  const bool url = s_entry_kind != EntryKind::WifiPassword;
+  const char** map = s_keyboard_mode == KeyboardMode::Upper    ? (url ? KEYS_UPPER_URL : KEYS_UPPER)
                      : s_keyboard_mode == KeyboardMode::Digits ? KEYS_DIGITS
                      : s_keyboard_mode == KeyboardMode::Symbols ? KEYS_SYMBOLS
-                                                                : KEYS_LOWER;
+                     : url ? KEYS_LOWER_URL
+                           : KEYS_LOWER;
   lv_btnmatrix_set_map(s_keyboard, map);
   uint16_t id = 0;
   for (const char** key = map; (*key)[0] != '\0'; ++key) {
@@ -1700,7 +1315,7 @@ void apply_keyboard_mode() {
       continue;
     }
     if (strcmp(*key, "space") == 0) {
-      lv_btnmatrix_set_btn_width(s_keyboard, id, 6);
+      lv_btnmatrix_set_btn_width(s_keyboard, id, url ? 4 : 6);
     } else if (is_special_key(*key)) {
       lv_btnmatrix_set_btn_width(s_keyboard, id, 2);
       lv_btnmatrix_set_btn_ctrl(s_keyboard, id, LV_BTNMATRIX_CTRL_CHECKED);
@@ -1716,7 +1331,8 @@ void apply_keyboard_mode() {
 void refresh_password() {
   const size_t length = strlen(s_password);
   if (length == 0) {
-    lv_label_set_text(s_password_field, "Password");
+    lv_label_set_text(s_password_field,
+                      s_entry_kind == EntryKind::WifiPassword ? "Password" : "Type it here");
     lv_obj_set_style_text_color(s_password_field, lv_color_hex(PUCK_COLOUR_MUTED), LV_PART_MAIN);
   } else if (s_password_visible) {
     lv_label_set_text(s_password_field, s_password);
@@ -1731,7 +1347,42 @@ void refresh_password() {
   button_set_text(s_password_show, s_password_visible ? "Hide" : "Show");
 }
 
+// The same keyboard screen types a link, an address or a token. Those are long,
+// so the field wraps in a smaller font instead of trailing off.
+void refresh_entry() {
+  static const char* const TITLES[] = {"", "Enrolment link", "Home Assistant address",
+                                       "Home Assistant token"};
+  static const char* const HINTS[] = {
+      "",
+      "The link from SigenStor Display's Admin page, starting https://",
+      "For example http://homeassistant.local:8123",
+      "A long-lived access token, from your profile page in Home Assistant",
+  };
+  const int kind = static_cast<int>(s_entry_kind);
+  lv_label_set_text(s_join_title, TITLES[kind]);
+  button_set_text(s_join_button, "Save");
+  const bool failed = s_entry_error[0] != '\0';
+  lv_label_set_text(s_join_status, failed ? s_entry_error : HINTS[kind]);
+  lv_obj_set_style_text_color(s_join_status,
+                              lv_color_hex(failed ? PUCK_COLOUR_ALARM : PUCK_COLOUR_MUTED),
+                              LV_PART_MAIN);
+  lv_obj_set_style_text_font(s_password_field, FONT_TEXT, LV_PART_MAIN);
+  lv_label_set_long_mode(s_password_field, LV_LABEL_LONG_WRAP);
+  set_hidden(s_password_line, false);
+  set_hidden(s_keyboard, false);
+  set_disabled(s_join_button, s_password[0] == '\0');
+  set_disabled(s_keyboard, false);
+  refresh_password();
+}
+
 void refresh_join() {
+  if (s_entry_kind != EntryKind::WifiPassword) {
+    refresh_entry();
+    return;
+  }
+  lv_obj_set_style_text_font(s_password_field, FONT_BIG, LV_PART_MAIN);
+  lv_label_set_long_mode(s_password_field, LV_LABEL_LONG_DOT);
+  button_set_text(s_join_button, "Join");
   char title[64];
   snprintf(title, sizeof(title), "Join %s", s_join_ssid);
   lv_label_set_text(s_join_title, title);
@@ -1782,7 +1433,30 @@ void refresh_picker() {
   }
 }
 
+void save_entry() {
+  const SheetActions& actions = s_actions;
+  bool (*save)(const char*, char*, size_t) =
+      s_entry_kind == EntryKind::EnrolmentLink ? actions.set_enrolment_link
+      : s_entry_kind == EntryKind::HaAddress   ? actions.set_ha_address
+                                               : actions.set_ha_token;
+  s_entry_error[0] = '\0';
+  if (save != nullptr && !save(s_password, s_entry_error, sizeof(s_entry_error))) {
+    if (s_entry_error[0] == '\0') {
+      snprintf(s_entry_error, sizeof(s_entry_error), "That was not saved");
+    }
+    refresh_join();
+    return;
+  }
+  // A token is a credential: do not leave it sitting in a buffer.
+  memset(s_password, 0, sizeof(s_password));
+  lv_obj_add_flag(s_join_panel, LV_OBJ_FLAG_HIDDEN);
+}
+
 void start_join() {
+  if (s_entry_kind != EntryKind::WifiPassword) {
+    save_entry();
+    return;
+  }
   s_join_requested = true;
   s_join.state = SheetJoin::Joining;
   s_join.message[0] = '\0';
@@ -1839,20 +1513,11 @@ void on_keyboard(lv_event_t* /*event*/) {
     }
   }
   // A failed attempt's message goes once the password is being changed.
+  s_entry_error[0] = '\0';
   if (s_join.state == SheetJoin::Failed) {
     s_join.state = SheetJoin::Idle;
   }
   refresh_join();
-}
-
-lv_obj_t* modal_backdrop(lv_obj_t* parent) {
-  lv_obj_t* backdrop = plain(parent);
-  lv_obj_set_size(backdrop, SHEET_W, SHEET_H);
-  lv_obj_add_flag(backdrop, LV_OBJ_FLAG_CLICKABLE);  // swallow taps behind it
-  lv_obj_set_style_bg_color(backdrop, lv_color_hex(PUCK_COLOUR_BG), LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(backdrop, LV_OPA_80, LV_PART_MAIN);
-  lv_obj_add_flag(backdrop, LV_OBJ_FLAG_HIDDEN);
-  return backdrop;
 }
 
 void build_picker(lv_obj_t* parent) {
@@ -2057,12 +1722,14 @@ void settings_sheet_create(lv_obj_t* parent, const SheetActions& actions) {
   build_screens(tiles[1]);
   build_wifi(tiles[2]);
   build_data(tiles[3]);
-  build_device(tiles[4]);
+  plant_build_page(tiles[4]);
+  build_device(tiles[5]);
   lv_obj_add_event_cb(s_pages, on_page_changed, LV_EVENT_VALUE_CHANGED, nullptr);
   lv_obj_set_tile_id(s_pages, 0, 0, LV_ANIM_OFF);
 
   build_restart_bar(s_root);
-  build_keypad(s_root);
+  plant_build_modals(s_root);
+  keypad_build(s_root);
   build_picker(s_root);
   build_join_panel(s_root);
   build_updating(parent);
@@ -2119,6 +1786,7 @@ void settings_sheet_set_wifi(const SheetWifi& wifi) {
 
 void settings_sheet_set_data(const SheetData& data) {
   s_data = data;
+  plant_set_data(data);
   if (!s_have_boot_data) {
     s_have_boot_data = true;
     s_boot_source = data.source;
@@ -2158,7 +1826,8 @@ void settings_sheet_close(bool animate) {
   }
   s_open = false;
   disarm();
-  settings_sheet_show_keypad(false);
+  keypad_close();
+  plant_close_modals();
   lv_obj_add_flag(s_picker, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(s_join_panel, LV_OBJ_FLAG_HIDDEN);
   s_join_requested = false;
@@ -2183,17 +1852,10 @@ SheetPage settings_sheet_page() {
 }
 
 void settings_sheet_show_keypad(bool show) {
-  if (s_keypad == nullptr) {
-    return;
-  }
   if (show) {
-    snprintf(s_keypad_text, sizeof(s_keypad_text), "%s", s_data.modbus_host);
-    lv_label_set_text(s_keypad_error, "");
-    refresh_keypad();
-    lv_obj_move_foreground(s_keypad);
-    lv_obj_clear_flag(s_keypad, LV_OBJ_FLAG_HIDDEN);
+    open_modbus_keypad();
   } else {
-    lv_obj_add_flag(s_keypad, LV_OBJ_FLAG_HIDDEN);
+    keypad_close();
   }
 }
 
@@ -2230,6 +1892,7 @@ void settings_sheet_show_picker() {
 }
 
 void settings_sheet_show_password(const char* ssid, bool secure) {
+  s_entry_kind = EntryKind::WifiPassword;
   snprintf(s_join_ssid, sizeof(s_join_ssid), "%s", ssid);
   s_join_secure = secure;
   s_password[0] = '\0';
@@ -2249,4 +1912,40 @@ void settings_sheet_type_password(const char* text) {
 
 void settings_sheet_press_join() {
   start_join();
+}
+
+void settings_sheet_show_entry(SheetEntry entry) {
+  s_entry_kind = entry == SheetEntry::EnrolmentLink ? EntryKind::EnrolmentLink
+                 : entry == SheetEntry::HaAddress   ? EntryKind::HaAddress
+                                                    : EntryKind::HaToken;
+  s_entry_error[0] = '\0';
+  memset(s_password, 0, sizeof(s_password));
+  // An address starts with what every address starts with; the rest start empty.
+  if (s_entry_kind == EntryKind::HaAddress) {
+    snprintf(s_password, sizeof(s_password), "http://");
+  }
+  // Long and typed by eye, so shown while typed. Show/Hide still works.
+  s_password_visible = true;
+  s_join_requested = false;
+  s_keyboard_mode = KeyboardMode::Lower;
+  apply_keyboard_mode();
+  refresh_join();
+  lv_obj_move_foreground(s_join_panel);
+  lv_obj_clear_flag(s_join_panel, LV_OBJ_FLAG_HIDDEN);
+}
+
+void settings_sheet_set_solar(const SheetSolar& solar) {
+  plant_set_solar(solar);
+}
+
+void settings_sheet_show_devices() {
+  plant_open_devices();
+}
+
+void settings_sheet_show_array(int index) {
+  plant_open_array(index);
+}
+
+const SheetActions& sheet_kit::sheet_actions() {
+  return s_actions;
 }

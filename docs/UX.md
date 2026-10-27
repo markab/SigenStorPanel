@@ -37,6 +37,14 @@ That drops WiFiManager, and with it the riskiest unknown after hosted WiFi itsel
 a soft AP and captive DNS running through the C6. Section 1 below is the plan as
 first written, kept for the reasoning.
 
+**Update 2026-10-27, later: credentials are typed on the panel too.** The Data page
+has "Enter link" (server), "Set address" and "Set token" (Home Assistant), on a
+keyboard whose bottom row carries `/ : . - _` for links and tokens. A new Solar tab
+holds the panel's own forecast (location, efficiency, inverter limit, four arrays)
+and, with Home Assistant, which forecast to use. The Data page's "Devices" opens a
+Modbus device editor (plant address, four IDs and kinds). The web page remains the
+only place for Home Assistant entity mapping, and an alternative for the rest.
+
 Firmware updates are on the Device page too: check now, install with a progress
 screen, and an opt-in "check automatically" (after boot, then every 12 h). A dot on
 the Device tab says one is waiting.

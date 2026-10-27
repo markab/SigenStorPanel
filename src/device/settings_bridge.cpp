@@ -7,6 +7,7 @@
 #include "board_config.h"
 #include "data_source.h"
 #include "display.h"
+#include "enrol_url.h"
 #include "modbus_api.h"
 #include "net.h"
 #include "poller.h"
@@ -65,10 +66,42 @@ void push_data() {
   data.server_set = !s.base_url.isEmpty() && !s.token.isEmpty();
   copy_host(data.server_host, sizeof(data.server_host), s.base_url);
   snprintf(data.modbus_host, sizeof(data.modbus_host), "%s", s.modbus_host.c_str());
+  data.modbus_plant_address = s.modbus_plant_address;
+  for (size_t i = 0; i < SETTINGS_MAX_MODBUS_DEVICES && i < SHEET_MAX_MODBUS; ++i) {
+    const ModbusDevice& device = s.modbus_devices[i];
+    data.modbus_devices[i].slave_id = device.slave_id;
+    data.modbus_devices[i].kind = device.type == ModbusDeviceType::AcCharger ? SheetDeviceKind::AcCharger
+                                  : device.dc_charger ? SheetDeviceKind::InverterWithDc
+                                                      : SheetDeviceKind::Inverter;
+  }
   data.ha_set = settings_home_assistant_is_configured();
   copy_host(data.ha_host, sizeof(data.ha_host), s.ha_base_url);
   data.poll_s = s.poll_interval_s;
   settings_sheet_set_data(data);
+}
+
+void push_solar() {
+  const Settings& s = settings_get();
+  SheetSolar solar;
+  solar.location_set = s.solar_location_set;
+  solar.latitude = s.latitude;
+  solar.longitude = s.longitude;
+  solar.system_loss = s.solar_system_loss;
+  solar.inverter_cap_kw = s.solar_inverter_cap_kw;
+  for (size_t i = 0; i < SOLAR_MAX_ARRAYS && i < SHEET_MAX_ARRAYS; ++i) {
+    solar.arrays[i].kwp = s.solar_arrays[i].kwp;
+    solar.arrays[i].tilt_deg = s.solar_arrays[i].tilt_deg;
+    solar.arrays[i].azimuth_deg = s.solar_arrays[i].azimuth_deg;
+  }
+  solar.ha_source = s.ha_solar_forecast_source;
+  settings_sheet_set_solar(solar);
+}
+
+// Home Assistant is saved as one record. The panel changes one part at a time,
+// so the rest goes back as it was; a blank token keeps the stored one.
+bool save_home_assistant(const String& base_url, const String& token, SolarForecastSource source) {
+  const Settings& s = settings_get();
+  return settings_set_home_assistant(base_url, token, s.ha_entities, HA_ENTITY_COUNT, source);
 }
 
 void push_wifi() {
@@ -247,6 +280,92 @@ SheetActions actions() {
     poller_wake();
     push_data();
   };
+  a.set_enrolment_link = [](const char* link, char* error, size_t size) {
+    const EnrolUrl parsed = enrol_url_parse(link);
+    if (!parsed.ok) {
+      snprintf(error, size, "Not a link. It should start https://");
+      return false;
+    }
+    if (parsed.token[0] == '\0') {
+      snprintf(error, size, "That link has no token in it");
+      return false;
+    }
+    if (!settings_set_server(String(parsed.base), String(parsed.token))) {
+      snprintf(error, size, "Could not save it");
+      return false;
+    }
+    poller_wake();
+    push_data();
+    return true;
+  };
+  a.set_ha_address = [](const char* url, char* error, size_t size) {
+    const EnrolUrl parsed = enrol_url_parse(url);
+    if (!parsed.ok) {
+      snprintf(error, size, "It should start http:// or https://");
+      return false;
+    }
+    if (!save_home_assistant(String(parsed.base), String(),
+                             settings_get().ha_solar_forecast_source)) {
+      snprintf(error, size, "Could not save it");
+      return false;
+    }
+    poller_wake();
+    push_data();
+    return true;
+  };
+  a.set_ha_token = [](const char* token, char* error, size_t size) {
+    String typed(token);
+    typed.trim();
+    if (settings_get().ha_base_url.isEmpty()) {
+      snprintf(error, size, "Set the address first");
+      return false;
+    }
+    if (typed.length() < 20) {
+      snprintf(error, size, "Too short for a Home Assistant token");
+      return false;
+    }
+    if (!save_home_assistant(settings_get().ha_base_url, typed,
+                             settings_get().ha_solar_forecast_source)) {
+      snprintf(error, size, "Could not save it");
+      return false;
+    }
+    poller_wake();
+    push_data();
+    return true;
+  };
+  a.set_modbus_devices = [](uint8_t plant, const SheetModbusDevice* devices, int count) {
+    const Settings& s = settings_get();
+    ModbusDevice stored[SETTINGS_MAX_MODBUS_DEVICES];
+    for (int i = 0; i < count && i < static_cast<int>(SETTINGS_MAX_MODBUS_DEVICES); ++i) {
+      stored[i].slave_id = devices[i].slave_id;
+      stored[i].type = devices[i].kind == SheetDeviceKind::AcCharger ? ModbusDeviceType::AcCharger
+                                                                     : ModbusDeviceType::Inverter;
+      stored[i].dc_charger = devices[i].kind == SheetDeviceKind::InverterWithDc;
+    }
+    settings_set_modbus(s.modbus_host, s.modbus_port, plant, stored, SETTINGS_MAX_MODBUS_DEVICES);
+    // A changed plant must not inherit the previous one's cached readings.
+    modbus_api_reset();
+    poller_wake();
+    push_data();
+  };
+  a.set_solar = [](const SheetSolar& solar) {
+    PvArray arrays[SOLAR_MAX_ARRAYS];
+    for (size_t i = 0; i < SOLAR_MAX_ARRAYS && i < SHEET_MAX_ARRAYS; ++i) {
+      arrays[i].kwp = solar.arrays[i].kwp;
+      arrays[i].tilt_deg = solar.arrays[i].tilt_deg;
+      arrays[i].azimuth_deg = solar.arrays[i].azimuth_deg;
+    }
+    settings_set_solar(solar.location_set, solar.latitude, solar.longitude, solar.system_loss,
+                       solar.inverter_cap_kw, arrays, SOLAR_MAX_ARRAYS);
+    // The poll task notices and recomputes; waking it saves a poll interval.
+    poller_wake();
+    push_solar();
+  };
+  a.set_ha_forecast_source = [](SolarForecastSource source) {
+    save_home_assistant(settings_get().ha_base_url, String(), source);
+    poller_wake();
+    push_solar();
+  };
   a.set_poll_interval = [](uint32_t seconds) {
     settings_set_poll_interval(seconds);
     poller_wake();
@@ -271,6 +390,7 @@ void settings_bridge_begin() {
   push_display();
   push_screens();
   push_data();
+  push_solar();
   push_wifi();
   push_device();
 }

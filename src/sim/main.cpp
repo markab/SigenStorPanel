@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "board_config.h"
+#include "enrol_url.h"
 #include "forecast_store.h"
 #include "history.h"
 #include "sim_backend.h"
@@ -415,6 +416,7 @@ SheetScreens s_sheet_screens;
 SheetWifi s_sheet_wifi;
 SheetData s_sheet_data;
 SheetDevice s_sheet_device;
+SheetSolar s_sheet_solar;
 SheetScan s_sheet_scan;
 SheetJoinStatus s_sheet_join;
 char s_sheet_joining[33] = {};
@@ -488,8 +490,22 @@ void seed_sheet() {
   s_sheet_data.server_set = true;
   snprintf(s_sheet_data.server_host, sizeof(s_sheet_data.server_host), "sigen.example.com");
   snprintf(s_sheet_data.modbus_host, sizeof(s_sheet_data.modbus_host), "192.168.1.20");
+  s_sheet_data.modbus_devices[0] = {1, SheetDeviceKind::InverterWithDc};
+  s_sheet_data.modbus_devices[1] = {2, SheetDeviceKind::Inverter};
+  s_sheet_data.modbus_devices[2] = {3, SheetDeviceKind::AcCharger};
+  snprintf(s_sheet_data.ha_host, sizeof(s_sheet_data.ha_host), "homeassistant.local:8123");
   s_sheet_data.poll_s = 5;
   settings_sheet_set_data(s_sheet_data);
+
+  s_sheet_solar.location_set = true;
+  s_sheet_solar.latitude = 51.5074f;
+  s_sheet_solar.longitude = -0.1278f;
+  s_sheet_solar.system_loss = 0.85f;
+  s_sheet_solar.inverter_cap_kw = 8.0f;
+  s_sheet_solar.arrays[0] = {6.4f, 35.0f, 180.0f};
+  s_sheet_solar.arrays[1] = {3.2f, 30.0f, 270.0f};
+  s_sheet_solar.ha_source = SolarForecastSource::Puck;
+  settings_sheet_set_solar(s_sheet_solar);
 
   snprintf(s_sheet_device.firmware, sizeof(s_sheet_device.firmware), "%s", PUCK_FW_VERSION);
   snprintf(s_sheet_device.host, sizeof(s_sheet_device.host), "sigenstorpanel");
@@ -607,6 +623,68 @@ SheetActions sim_sheet_actions() {
     snprintf(s_sheet_data.modbus_host, sizeof(s_sheet_data.modbus_host), "%s", host);
     settings_sheet_set_data(s_sheet_data);
   };
+  // The same parser the device uses, so a bad link is refused here as it is there.
+  actions.set_enrolment_link = [](const char* link, char* error, size_t size) {
+    const EnrolUrl parsed = enrol_url_parse(link);
+    if (!parsed.ok) {
+      snprintf(error, size, "Not a link. It should start https://");
+      return false;
+    }
+    if (parsed.token[0] == '\0') {
+      snprintf(error, size, "That link has no token in it");
+      return false;
+    }
+    printf("[sim] enrolment link for %s\n", parsed.base);
+    s_sheet_data.server_set = true;
+    const char* host = strstr(parsed.base, "://");
+    snprintf(s_sheet_data.server_host, sizeof(s_sheet_data.server_host), "%s",
+             host != nullptr ? host + 3 : parsed.base);
+    settings_sheet_set_data(s_sheet_data);
+    return true;
+  };
+  actions.set_ha_address = [](const char* url, char* error, size_t size) {
+    const EnrolUrl parsed = enrol_url_parse(url);
+    if (!parsed.ok) {
+      snprintf(error, size, "It should start http:// or https://");
+      return false;
+    }
+    printf("[sim] home assistant at %s\n", parsed.base);
+    const char* host = strstr(parsed.base, "://");
+    snprintf(s_sheet_data.ha_host, sizeof(s_sheet_data.ha_host), "%s",
+             host != nullptr ? host + 3 : parsed.base);
+    settings_sheet_set_data(s_sheet_data);
+    return true;
+  };
+  actions.set_ha_token = [](const char* token, char* error, size_t size) {
+    if (strlen(token) < 20) {
+      snprintf(error, size, "Too short for a Home Assistant token");
+      return false;
+    }
+    printf("[sim] home assistant token (%zu characters)\n", strlen(token));
+    s_sheet_data.ha_set = true;
+    settings_sheet_set_data(s_sheet_data);
+    return true;
+  };
+  actions.set_modbus_devices = [](uint8_t plant, const SheetModbusDevice* devices, int count) {
+    printf("[sim] modbus plant %u:", static_cast<unsigned>(plant));
+    for (int i = 0; i < count; ++i) {
+      printf(" %u", static_cast<unsigned>(devices[i].slave_id));
+    }
+    printf("\n");
+    s_sheet_data.modbus_plant_address = plant;
+    memcpy(s_sheet_data.modbus_devices, devices, sizeof(SheetModbusDevice) * count);
+    settings_sheet_set_data(s_sheet_data);
+  };
+  actions.set_solar = [](const SheetSolar& solar) {
+    printf("[sim] solar: %.4f, %.4f, efficiency %.2f, limit %.1f kW\n", solar.latitude,
+           solar.longitude, solar.system_loss, solar.inverter_cap_kw);
+    s_sheet_solar = solar;
+    settings_sheet_set_solar(s_sheet_solar);
+  };
+  actions.set_ha_forecast_source = [](SolarForecastSource source) {
+    printf("[sim] home assistant forecast: %s\n", solar_forecast_source_name(source));
+    s_sheet_solar.ha_source = source;
+  };
   actions.set_poll_interval = [](uint32_t seconds) {
     printf("[sim] poll every %us\n", static_cast<unsigned>(seconds));
     s_sheet_data.poll_s = seconds;
@@ -716,7 +794,7 @@ void cycle_overlay() {
       ui_set_overlay("Not configured",
                      "http://sigenstorpanel.local/\n"
                      "http://192.168.1.100/",
-                     "Scan, or open this and paste the enrolment URL", true);
+                     "Swipe up, then Data, to enter the enrolment link. Or scan this", true);
       break;
     case 2:
       ui_set_overlay("Set up WiFi", nullptr, "Swipe up to choose a network");
@@ -865,7 +943,7 @@ int run_sheet_shots(const std::string& directory) {
   settings_sheet_close(false);
 
   static const char* const NAMES[] = {"sheet_1_display", "sheet_2_screens", "sheet_3_wifi",
-                                      "sheet_4_data", "sheet_5_device"};
+                                      "sheet_4_data",    "sheet_5_solar",   "sheet_6_device"};
   for (int page = 0; page < static_cast<int>(SheetPage::Count); ++page) {
     settings_sheet_open(static_cast<SheetPage>(page), false);
     run_frames(100);
@@ -890,12 +968,46 @@ int run_sheet_shots(const std::string& directory) {
   s_sheet_data = seeded;
   settings_sheet_set_data(s_sheet_data);
 
+  // Typing credentials on the glass, and the plant editors.
+  settings_sheet_show_entry(SheetEntry::EnrolmentLink);
+  settings_sheet_type_password("https://sigen.example.com/kiosk-enroll?token=Qm9vdHN0cmFwVG9rZW4");
+  run_frames(50);
+  failures += save_shot(directory, "sheet_4d_enter_link") ? 0 : 1;
+  settings_sheet_close(false);
+
+  const SheetData before_plant = s_sheet_data;
+  s_sheet_data.source = DataSource::Modbus;
+  settings_sheet_set_data(s_sheet_data);
+  settings_sheet_open(SheetPage::Data, false);
+  settings_sheet_show_devices();
+  run_frames(50);
+  failures += save_shot(directory, "sheet_4e_modbus_devices") ? 0 : 1;
+  settings_sheet_close(false);
+  settings_sheet_open(SheetPage::Solar, false);
+  run_frames(50);
+  failures += save_shot(directory, "sheet_5b_solar_modbus") ? 0 : 1;
+  settings_sheet_show_array(0);
+  run_frames(50);
+  failures += save_shot(directory, "sheet_5c_array") ? 0 : 1;
+  settings_sheet_close(false);
+  s_sheet_data.source = DataSource::HomeAssistant;
+  settings_sheet_set_data(s_sheet_data);
+  settings_sheet_open(SheetPage::Data, false);
+  run_frames(50);
+  failures += save_shot(directory, "sheet_4f_data_home_assistant") ? 0 : 1;
+  settings_sheet_open(SheetPage::Solar, false);
+  run_frames(50);
+  failures += save_shot(directory, "sheet_5d_solar_home_assistant") ? 0 : 1;
+  settings_sheet_close(false);
+  s_sheet_data = before_plant;
+  settings_sheet_set_data(s_sheet_data);
+
   s_sheet_device.update = SheetUpdate::Available;
   snprintf(s_sheet_device.update_version, sizeof(s_sheet_device.update_version), "0.1.0");
   settings_sheet_open(SheetPage::Device, false);
   push_sheet_device();
   run_frames(100);
-  failures += save_shot(directory, "sheet_5b_update") ? 0 : 1;
+  failures += save_shot(directory, "sheet_6b_update") ? 0 : 1;
   s_sheet_device.update = SheetUpdate::UpToDate;
   push_sheet_device();
 
