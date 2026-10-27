@@ -21,6 +21,11 @@ bool sim_backend_pump();
 // without leaking SDL's headers upwards.
 int sim_backend_take_key();
 
+// While on, the keyboard types instead of driving the harness: printable
+// characters as typed (shift applied), '\b' for backspace, '\r' for return, and
+// ⌘V or Ctrl+V pastes the clipboard. Escape no longer quits.
+void sim_backend_set_text_mode(bool on);
+
 void sim_backend_set_title(const char* title);
 
 // Sleeps, so the sim's main loop does not spin a core flat out.

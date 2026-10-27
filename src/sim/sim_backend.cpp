@@ -21,9 +21,11 @@ lv_coord_t s_pointer_x = PUCK_LCD_WIDTH / 2;
 lv_coord_t s_pointer_y = PUCK_LCD_HEIGHT / 2;
 bool s_pointer_down = false;
 bool s_quit = false;
+bool s_text_mode = false;
 
-// A tiny ring buffer is enough — keys are consumed once per frame.
-constexpr size_t KEY_QUEUE_SIZE = 16;
+// Keys are consumed once per frame, but a paste arrives all at once, and an
+// enrolment link is about 80 characters.
+constexpr size_t KEY_QUEUE_SIZE = 512;
 int s_keys[KEY_QUEUE_SIZE];
 size_t s_key_head = 0;
 size_t s_key_tail = 0;
@@ -160,10 +162,40 @@ bool sim_backend_pump() {
         s_pointer_y = static_cast<lv_coord_t>(event.motion.y);
         break;
       case SDL_KEYDOWN:
-        if (event.key.keysym.sym == SDLK_ESCAPE) {
+        if (s_text_mode) {
+          // Characters come from SDL_TEXTINPUT, which has the shift applied;
+          // only the editing keys and paste are taken here. Escape does not
+          // quit while typing: it is too easy to reach for to dismiss a keyboard.
+          const SDL_Keycode sym = event.key.keysym.sym;
+          if (sym == SDLK_BACKSPACE) {
+            push_key('\b');
+          } else if (sym == SDLK_RETURN || sym == SDLK_KP_ENTER) {
+            push_key('\r');
+          } else if (sym == SDLK_v && (event.key.keysym.mod & (KMOD_GUI | KMOD_CTRL)) != 0) {
+            if (char* clip = SDL_GetClipboardText()) {
+              for (const char* c = clip; *c != '\0'; ++c) {
+                // A link copied from a browser can carry a trailing newline.
+                if (*c >= ' ' && *c <= '~') {
+                  push_key(*c);
+                }
+              }
+              SDL_free(clip);
+            }
+          }
+        } else if (event.key.keysym.sym == SDLK_ESCAPE) {
           s_quit = true;
         } else {
           push_key(event.key.keysym.sym);
+        }
+        break;
+      case SDL_TEXTINPUT:
+        // ⌘V also produces a "v" here on some setups; the modifier check drops it.
+        if (s_text_mode && (SDL_GetModState() & (KMOD_GUI | KMOD_CTRL)) == 0) {
+          for (const char* c = event.text.text; *c != '\0'; ++c) {
+            if (*c >= ' ' && *c <= '~') {
+              push_key(*c);
+            }
+          }
         }
         break;
       default:
@@ -171,6 +203,15 @@ bool sim_backend_pump() {
     }
   }
   return !s_quit;
+}
+
+void sim_backend_set_text_mode(bool on) {
+  if (on != s_text_mode) {
+    s_text_mode = on;
+    if (on) {
+      SDL_StartTextInput();
+    }
+  }
 }
 
 int sim_backend_take_key() {

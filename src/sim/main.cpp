@@ -11,6 +11,9 @@
 // registers, unconfigured cost) visible before any screen depends on them.
 
 #include <dirent.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <lvgl.h>
 #include <math.h>
 #include <stdio.h>
@@ -19,6 +22,7 @@
 #include <time.h>
 
 #include <algorithm>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -55,6 +59,8 @@ bool s_with_detailed_screens = true;
 // keys do nothing.
 bool s_live = false;
 std::string s_live_host;
+// Set while --shot drives the sheet, whose demo link must not go live.
+bool s_shot_pass = false;
 
 // The real screen, plus the raw field dump kept behind the 'd' key. Keeping the
 // dump around is worth its few lines: when a screen shows something surprising,
@@ -470,6 +476,78 @@ void show_live(const LiveUpdate& update) {
   }
 }
 
+// The link pasted into the settings sheet, kept between runs the way the device
+// keeps it in NVS. In the home directory, never the tree, and readable only by
+// you: it is a working credential for your server.
+std::string live_link_path() {
+  const char* home = getenv("HOME");
+  return std::string(home != nullptr ? home : ".") + "/.config/sigenstorpanel/sim-server";
+}
+
+std::string live_link_load() {
+  std::ifstream file(live_link_path());
+  std::string link;
+  std::getline(file, link);
+  return link;
+}
+
+void live_link_save(const std::string& link) {
+  const std::string path = live_link_path();
+  const std::string directory = path.substr(0, path.rfind('/'));
+  mkdir((directory.substr(0, directory.rfind('/'))).c_str(), 0700);
+  mkdir(directory.c_str(), 0700);
+  const int fd = open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+  if (fd < 0) {
+    fprintf(stderr, "[live] could not save the link to %s\n", path.c_str());
+    return;
+  }
+  const std::string line = link + "\n";
+  if (write(fd, line.data(), line.size()) != static_cast<ssize_t>(line.size())) {
+    fprintf(stderr, "[live] could not save the link to %s\n", path.c_str());
+  }
+  close(fd);
+}
+
+SheetData s_sheet_data;
+
+// Switches the screens from the fixtures to `base`. The fixture's made-up day
+// goes first, so the real day series is not drawn on top of it.
+bool start_live(const std::string& base, const std::string& token) {
+  s_live_host = base.substr(base.find("://") + 3);
+  const size_t shown = token.size() > 4 ? 4 : token.size();
+  printf("[live] polling %s with token ...%s\n", base.c_str(),
+         token.substr(token.size() - shown).c_str());
+  if (!live_source_begin(base, token, 5)) {
+    fprintf(stderr, "[sim] curl did not start\n");
+    return false;
+  }
+  s_live = true;
+  s_live_ever_ok = false;
+  s_live_day_ok = false;
+  history_reset(HistoryBank::Live);
+  forecast_store_clear();
+  ui_clear_day();
+  ui_set_day_offset(0);
+  ui_set_overlay("Waiting for data", nullptr, nullptr);
+  sim_backend_set_title("SigenStorPanel sim - live - connecting");
+
+  s_sheet_data.source = DataSource::Server;
+  s_sheet_data.server_set = true;
+  snprintf(s_sheet_data.server_host, sizeof(s_sheet_data.server_host), "%s",
+           s_live_host.c_str());
+  settings_sheet_set_data(s_sheet_data);
+  return true;
+}
+
+void show_current_fixture();
+
+void stop_live() {
+  live_source_end();
+  s_live = false;
+  ui_set_overlay(nullptr, nullptr, nullptr);
+  show_current_fixture();
+}
+
 // ---------------------------------------------------------- settings sheet ---
 //
 // Stand-in for the device's settings store, WiFi and poll task. Every action
@@ -480,7 +558,6 @@ void show_live(const LiveUpdate& update) {
 SheetDisplay s_sheet_display;
 SheetScreens s_sheet_screens;
 SheetWifi s_sheet_wifi;
-SheetData s_sheet_data;
 SheetDevice s_sheet_device;
 SheetSolar s_sheet_solar;
 SheetScan s_sheet_scan;
@@ -690,6 +767,10 @@ SheetActions sim_sheet_actions() {
   };
   actions.forget_server = []() {
     printf("[sim] forget server link\n");
+    unlink(live_link_path().c_str());
+    if (s_live) {
+      stop_live();
+    }
     s_sheet_data.server_set = false;
     s_sheet_data.server_host[0] = '\0';
     settings_sheet_set_data(s_sheet_data);
@@ -711,12 +792,17 @@ SheetActions sim_sheet_actions() {
       return false;
     }
     printf("[sim] enrolment link for %s\n", parsed.base);
-    s_sheet_data.server_set = true;
-    const char* host = strstr(parsed.base, "://");
-    snprintf(s_sheet_data.server_host, sizeof(s_sheet_data.server_host), "%s",
-             host != nullptr ? host + 3 : parsed.base);
-    settings_sheet_set_data(s_sheet_data);
-    return true;
+    // The screen-shot pass types a made-up link; only a person's goes live.
+    if (s_shot_pass) {
+      s_sheet_data.server_set = true;
+      const char* host = strstr(parsed.base, "://");
+      snprintf(s_sheet_data.server_host, sizeof(s_sheet_data.server_host), "%s",
+               host != nullptr ? host + 3 : parsed.base);
+      settings_sheet_set_data(s_sheet_data);
+      return true;
+    }
+    live_link_save(link);
+    return start_live(parsed.base, parsed.token);
   };
   actions.set_ha_address = [](const char* url, char* error, size_t size) {
     const EnrolUrl parsed = enrol_url_parse(url);
@@ -1078,10 +1164,23 @@ int run_sheet_shots(const std::string& directory) {
   settings_sheet_set_data(s_sheet_data);
 
   // Typing credentials on the glass, and the plant editors.
+  // Through the physical-keyboard path, as a ⌘V paste arrives: a character at a
+  // time, a typo and its backspace, then return to save.
   settings_sheet_show_entry(SheetEntry::EnrolmentLink);
-  settings_sheet_type_password("https://sigen.example.com/kiosk-enroll?token=Qm9vdHN0cmFwVG9rZW4");
+  check(settings_sheet_typing(), "link entry takes the keyboard");
+  for (const char* c = "https://sigen.example.com/kiosk-enroll?token=Qm9vdHN0cmFwVG9rZW4x"; *c;
+       ++c) {
+    settings_sheet_type_key(*c);
+  }
+  settings_sheet_type_key('\b');
   run_frames(50);
   failures += save_shot(directory, "sheet_4d_enter_link") ? 0 : 1;
+  s_sheet_data.server_set = false;
+  settings_sheet_type_key('\r');
+  run_frames(50);
+  check(!settings_sheet_typing() && s_sheet_data.server_set &&
+            strcmp(s_sheet_data.server_host, "sigen.example.com") == 0,
+        "return saves the typed link");
   settings_sheet_close(false);
 
   const SheetData before_plant = s_sheet_data;
@@ -1306,12 +1405,18 @@ int run_selftest();
 int run_panel_selftest();
 
 int main(int argc, char** argv) {
-  // sim [fixture-dir] [--shot output-dir] [--selftest] [--modbus] [--live]
+  // sim [fixture-dir] [--shot output-dir] [--selftest] [--modbus] [--live] [--fixtures]
   //
-  // --live polls a real server, read from the environment so the token never
-  // reaches a shell history or a process listing:
-  //   SIGEN_URL=https://host SIGEN_TOKEN=... .pio/build/sim/program --live
+  // Live data from a real server, in order of preference:
+  //   - SIGEN_URL, the enrolment link (or a base URL plus SIGEN_TOKEN);
+  //   - the link last pasted into the settings sheet (Data, Server);
+  //   - nothing: the fixtures, as always.
+  // --live insists on one of the first two; --fixtures ignores them. --shot
+  // without --live is always the fixtures, so the screenshot pass stays the same
+  // whatever is saved.
   std::string directory = "test/fixtures";
+  bool want_live = false;
+  bool no_live = false;
   std::string shot_directory;
   for (int i = 1; i < argc; ++i) {
     const std::string argument = argv[i];
@@ -1320,7 +1425,9 @@ int main(int argc, char** argv) {
       const int panel = run_panel_selftest();
       return shared != 0 || panel != 0 ? 1 : 0;
     } else if (argument == "--live") {
-      s_live = true;
+      want_live = true;
+    } else if (argument == "--fixtures") {
+      no_live = true;
     } else if (argument == "--modbus") {
       s_with_detailed_screens = false;
     } else if (argument == "--shot" && i + 1 < argc) {
@@ -1332,22 +1439,36 @@ int main(int argc, char** argv) {
     }
   }
 
+  // Where live data would come from, if anywhere. Resolved before the window
+  // opens, so a bad SIGEN_URL fails at once rather than behind a blank screen.
   std::string live_url;
   std::string live_token;
-  if (s_live) {
+  if (!no_live && (want_live || shot_directory.empty())) {
     const char* url = getenv("SIGEN_URL");
     const char* token = getenv("SIGEN_TOKEN");
-    if (url == nullptr || *url == '\0' || token == nullptr || *token == '\0') {
+    const bool from_env = url != nullptr && *url != '\0';
+    const std::string link = from_env ? url : live_link_load();
+    const EnrolUrl parsed = enrol_url_parse(link.c_str());
+    live_url = parsed.ok ? parsed.base : "";
+    live_token = token != nullptr && *token != '\0' ? token : parsed.token;
+    if (from_env && (!parsed.ok || live_token.empty())) {
       fprintf(stderr,
-              "[sim] --live needs SIGEN_URL (https://host, no path) and SIGEN_TOKEN (the "
-              "kiosk token)\n");
+              "[sim] SIGEN_URL should be the kiosk enrolment link from the server's Admin\n"
+              "      page, in quotes, or a base URL plus SIGEN_TOKEN:\n"
+              "        SIGEN_URL='https://host/kiosk-enroll?token=...' "
+              ".pio/build/sim/program\n");
       return 1;
     }
-    live_url = url;
-    live_token = token;
-    s_live_host = live_url.substr(live_url.find("://") == std::string::npos
-                                      ? 0
-                                      : live_url.find("://") + 3);
+    if (live_url.empty() || live_token.empty()) {
+      live_url.clear();
+      if (want_live) {
+        printf("[sim] no server saved: paste the enrolment link into the settings sheet\n"
+               "      (Data, Server) and the sim switches to it\n");
+      }
+    } else if (!from_env) {
+      printf("[sim] using the server saved in %s (--fixtures to ignore it)\n",
+             live_link_path().c_str());
+    }
   }
 
   s_fixture_paths = discover_fixtures(directory);
@@ -1370,19 +1491,19 @@ int main(int argc, char** argv) {
     ui_set_fine_rotation(s_startup_tilt);
   }
 
-  if (s_live) {
-    ui_set_overlay("Waiting for data", nullptr, nullptr);
-    sim_backend_set_title("SigenStorPanel sim - live - connecting");
-    const size_t shown = live_token.size() > 4 ? 4 : live_token.size();
-    printf("[live] polling %s with token ...%s\n", live_url.c_str(),
-           live_token.substr(live_token.size() - shown).c_str());
-    if (!live_source_begin(live_url, live_token, 5)) {
-      fprintf(stderr, "[sim] curl did not start\n");
-      return 1;
-    }
+  if (!live_url.empty() && !start_live(live_url, live_token)) {
+    return 1;
+  }
+  if (want_live && !s_live && shot_directory.empty()) {
+    settings_sheet_open(SheetPage::Data, false);
   }
 
   if (!shot_directory.empty()) {
+    if (want_live && !s_live) {
+      fprintf(stderr, "[sim] --live --shot needs SIGEN_URL or a saved server\n");
+      return 1;
+    }
+    s_shot_pass = !s_live;
     const int failures =
         s_live ? run_live_shots(shot_directory) : run_screenshot_pass(shot_directory);
     live_source_end();
@@ -1395,8 +1516,16 @@ int main(int argc, char** argv) {
   }
 
   while (sim_backend_pump()) {
+    // The keyboard types while a password, link or token is open, so a link can
+    // be pasted with ⌘V; otherwise it drives the harness.
+    const bool typing = settings_sheet_typing();
+    sim_backend_set_text_mode(typing);
     while (const int key = sim_backend_take_key()) {
-      handle_key(key);
+      if (typing) {
+        settings_sheet_type_key(key);
+      } else {
+        handle_key(key);
+      }
     }
     LiveUpdate update;
     if (s_live && live_source_take(&update)) {

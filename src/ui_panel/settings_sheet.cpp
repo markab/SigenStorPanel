@@ -1525,6 +1525,15 @@ void on_pick(lv_event_t* event) {
   }
 }
 
+// A failed attempt's message goes once the password is being changed.
+void password_edited() {
+  s_entry_error[0] = '\0';
+  if (s_join.state == SheetJoin::Failed) {
+    s_join.state = SheetJoin::Idle;
+  }
+  refresh_join();
+}
+
 void on_keyboard(lv_event_t* /*event*/) {
   const uint16_t id = lv_btnmatrix_get_selected_btn(s_keyboard);
   if (id == LV_BTNMATRIX_BTN_NONE) {
@@ -1557,12 +1566,7 @@ void on_keyboard(lv_event_t* /*event*/) {
       apply_keyboard_mode();
     }
   }
-  // A failed attempt's message goes once the password is being changed.
-  s_entry_error[0] = '\0';
-  if (s_join.state == SheetJoin::Failed) {
-    s_join.state = SheetJoin::Idle;
-  }
-  refresh_join();
+  password_edited();
 }
 
 void build_picker(lv_obj_t* parent) {
@@ -1957,6 +1961,32 @@ void settings_sheet_type_password(const char* text) {
 
 void settings_sheet_press_join() {
   start_join();
+}
+
+bool settings_sheet_typing() {
+  return s_join_panel != nullptr && !lv_obj_has_flag(s_join_panel, LV_OBJ_FLAG_HIDDEN);
+}
+
+void settings_sheet_type_key(int key) {
+  if (!settings_sheet_typing()) {
+    return;
+  }
+  if (key == '\r') {
+    start_join();
+    return;
+  }
+  const size_t length = strlen(s_password);
+  if (key == '\b') {
+    if (length > 0) {
+      s_password[length - 1] = '\0';
+    }
+  } else if (key >= ' ' && key <= '~' && length + 1 < sizeof(s_password)) {
+    s_password[length] = static_cast<char>(key);
+    s_password[length + 1] = '\0';
+  } else {
+    return;
+  }
+  password_edited();
 }
 
 void settings_sheet_show_entry(SheetEntry entry) {

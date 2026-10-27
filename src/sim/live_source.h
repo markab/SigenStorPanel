@@ -26,11 +26,12 @@ struct LiveUpdate {
 
 // Starts polling `base_url` ("https://host" or "http://192.168.1.10:8000", no
 // trailing slash) with the kiosk token, every `poll_s` seconds for the summary
-// and every five minutes for the day series. False if curl could not start.
+// and every five minutes for the day series. Restarts the thread if it was
+// already polling. False if curl could not start.
 bool live_source_begin(const std::string& base_url, const std::string& token, uint32_t poll_s);
 
 // Moves anything new into `out`. False when there was nothing.
 bool live_source_take(LiveUpdate* out);
 
-// Asks the thread to stop and waits for it.
+// Asks the thread to stop and waits for it. Safe to call when not running.
 void live_source_end();

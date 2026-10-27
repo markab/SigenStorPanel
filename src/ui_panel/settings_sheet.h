@@ -259,3 +259,9 @@ void settings_sheet_show_array(int index);
 // Types into the password field and presses Join, as fingers would. For the sim.
 void settings_sheet_type_password(const char* text);
 void settings_sheet_press_join();
+
+// The sim's physical keyboard: whether a password, link or token is being typed,
+// and one key into it. Printable ASCII appends, '\b' deletes, '\r' presses
+// Join or Save.
+bool settings_sheet_typing();
+void settings_sheet_type_key(int key);

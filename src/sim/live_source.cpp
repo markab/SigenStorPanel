@@ -112,9 +112,16 @@ void run() {
 }  // namespace
 
 bool live_source_begin(const std::string& base_url, const std::string& token, uint32_t poll_s) {
-  if (curl_global_init(CURL_GLOBAL_DEFAULT) != CURLE_OK) {
+  // Once per process: a new link from the settings sheet restarts the thread,
+  // not curl.
+  static const bool curl_ready = curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK;
+  if (!curl_ready) {
     return false;
   }
+  live_source_end();
+  s_stop = false;
+  s_fresh = false;
+  s_pending = LiveUpdate();
   s_base_url = base_url;
   while (!s_base_url.empty() && s_base_url.back() == '/') {
     s_base_url.pop_back();
@@ -148,5 +155,4 @@ void live_source_end() {
   }
   s_wake.notify_all();
   s_thread.join();
-  curl_global_cleanup();
 }
