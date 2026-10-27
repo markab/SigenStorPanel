@@ -92,6 +92,7 @@ if it applies.
 | `src/ui/theme.h` | Font roles and spacing for 1024×600 |
 | `src/ui/fonts/`, `tools/generate_fonts.sh` | Larger Montserrat subsets |
 | `src/sim/main.cpp`, `src/sim/sim_backend.{h,cpp}` | 1024×600 window; panel screen set |
+| `src/sim/live_source.{h,cpp}` | New. The sim's `--live` mode: polls a real server through libcurl. A candidate to offer upstream, since nothing in it is panel-specific |
 | `include/lv_conf.h` | `LV_MEM_SIZE` and fonts for the panel |
 | `tools/package_release.sh` | ESP32-P4, bootloader at 0x2000, one variant, no flat-URL alias |
 | `.github/workflows/build.yml` | `panel` and `sim`; own PlatformIO core dir. Manual-only until Phase 0c |

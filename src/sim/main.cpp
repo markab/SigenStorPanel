@@ -2,7 +2,8 @@
 //
 // Loads the canned /api/summary fixtures from test/fixtures and lets you step
 // through them with the keyboard, so screen work happens in a one-second
-// edit-run loop instead of a flash cycle.
+// edit-run loop instead of a flash cycle. With --live it polls a real server
+// instead (live_source.h).
 //
 // What it renders right now is a plain dump of the parsed Snapshot. That is
 // deliberately not a design — it exists to prove the fixture -> parse -> LVGL
@@ -15,15 +16,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include <algorithm>
 #include <string>
 #include <vector>
 
 #include "board_config.h"
+#include "day_series.h"
 #include "enrol_url.h"
 #include "forecast_store.h"
 #include "history.h"
+#include "live_source.h"
 #include "sim_backend.h"
 #include "snapshot.h"
 #include "ui/theme.h"
@@ -46,6 +50,11 @@ int16_t s_startup_tilt = 0;
 // screen and no flows screen (§D1), which is otherwise only visible on a device
 // configured for it.
 bool s_with_detailed_screens = true;
+
+// --live: readings come from SIGEN_URL instead of the fixtures, and the fixture
+// keys do nothing.
+bool s_live = false;
+std::string s_live_host;
 
 // The real screen, plus the raw field dump kept behind the 'd' key. Keeping the
 // dump around is worth its few lines: when a screen shows something surprising,
@@ -402,6 +411,63 @@ void show_current_fixture() {
   const std::string title = "SigenStorPanel sim - " + name;
   sim_backend_set_title(title.c_str());
   printf("[sim] %s (%zu bytes)\n", name.c_str(), json.size());
+}
+
+
+// ---------------------------------------------------------------- --live ---
+//
+// The device's poll-to-screen path in miniature: the day series goes into the
+// history ring as it arrives, then the summary goes to ui_update(), which files
+// it into the ring as well. The overlays are the device's, worded the same.
+
+bool s_live_ever_ok = false;
+bool s_live_day_ok = false;
+
+void show_live(const LiveUpdate& update) {
+  if (!update.day_series.empty()) {
+    const uint32_t now_minute = static_cast<uint32_t>(time(nullptr) / 60);
+    if (day_series_parse(HistoryBank::Live, update.day_series.c_str(),
+                         update.day_series.size(), now_minute)) {
+      s_live_day_ok = true;
+      printf("[live] day series (%zu bytes)\n", update.day_series.size());
+    } else {
+      fprintf(stderr, "[live] day series did not parse\n");
+    }
+  }
+
+  if (!update.summary.empty()) {
+    Snapshot snapshot;
+    if (snapshot_parse(update.summary.c_str(), update.summary.size(), &snapshot)) {
+      s_live_ever_ok = true;
+      ui_set_overlay(nullptr, nullptr, nullptr);
+      lv_obj_set_style_text_color(s_body, lv_color_hex(COLOUR_TEXT), LV_PART_MAIN);
+      lv_label_set_text(s_body, describe(snapshot).c_str());
+      ui_update(snapshot);
+
+      char title[160];
+      const time_t now = time(nullptr);
+      struct tm local;
+      localtime_r(&now, &local);
+      snprintf(title, sizeof(title), "SigenStorPanel sim - live %s - %02d:%02d:%02d",
+               s_live_host.c_str(), local.tm_hour, local.tm_min, local.tm_sec);
+      sim_backend_set_title(title);
+    } else {
+      fprintf(stderr, "[live] summary did not parse (%zu bytes)\n", update.summary.size());
+    }
+  }
+
+  if (!update.error.empty()) {
+    const std::string title = "SigenStorPanel sim - live - " + update.error;
+    sim_backend_set_title(title.c_str());
+    // A rejected token never fixes itself, so it is said whatever came before.
+    if (update.error == "http 401" || update.error == "http 403") {
+      ui_set_overlay("Re-enrol needed", s_live_host.c_str(),
+                     "The kiosk token was revoked. Re-enrol at");
+    } else if (!s_live_ever_ok) {
+      const std::string detail = "Cannot reach the server\n" + update.error;
+      ui_set_overlay("No data", nullptr, detail.c_str());
+    }
+  }
 }
 
 // ---------------------------------------------------------- settings sheet ---
@@ -847,6 +913,11 @@ void handle_key(int key) {
   // The day indicator and the toast, which the buttons drive on hardware and no
   // fixture can express.
   if (key == '-' || key == '=') {
+    if (s_live) {
+      // Past days need the dated fetches, which --live does not make.
+      printf("[sim] --live shows today only\n");
+      return;
+    }
     ui_set_day_offset(ui_day_offset() + (key == '=' ? 1 : -1));
     // The device fetches a dated payload for a past day; here the current fixture
     // stands in for it, so the loaded state is what gets drawn. Shift-stepping
@@ -877,6 +948,9 @@ void handle_key(int key) {
     const int count = ui_screen_count();
     const int step = key == ']' ? 1 : count - 1;
     ui_show_screen((ui_current_screen() + step) % count);
+    return;
+  }
+  if (s_live) {
     return;
   }
   if (key == 'n' || key == ' ') {
@@ -924,6 +998,31 @@ bool save_shot(const std::string& directory, const char* name) {
   }
   printf("[sim] wrote %s\n", path.c_str());
   return true;
+}
+
+// --live --shot: waits for the server's first reading and day series, then
+// writes every screen once. The same pass as the fixtures', against real data.
+int run_live_shots(const std::string& directory) {
+  for (int waited = 0; waited < 30000 && !(s_live_ever_ok && s_live_day_ok); waited += 100) {
+    LiveUpdate update;
+    if (live_source_take(&update)) {
+      show_live(update);
+    }
+    run_frames(100);
+  }
+  if (!s_live_ever_ok) {
+    fprintf(stderr, "[sim] no reading from the server within 30 s\n");
+    return 1;
+  }
+  int failures = 0;
+  for (int screen = 0; screen < ui_screen_count(); ++screen) {
+    ui_show_screen(screen);
+    run_frames(600);
+    char name[32];
+    snprintf(name, sizeof(name), "live_%d", screen + 1);
+    failures += save_shot(directory, name) ? 0 : 1;
+  }
+  return failures;
 }
 
 // The settings sheet: the swipes that open, page and close it, then every page.
@@ -1207,7 +1306,11 @@ int run_selftest();
 int run_panel_selftest();
 
 int main(int argc, char** argv) {
-  // sim [fixture-dir] [--shot output-dir] [--selftest] [--modbus]
+  // sim [fixture-dir] [--shot output-dir] [--selftest] [--modbus] [--live]
+  //
+  // --live polls a real server, read from the environment so the token never
+  // reaches a shell history or a process listing:
+  //   SIGEN_URL=https://host SIGEN_TOKEN=... .pio/build/sim/program --live
   std::string directory = "test/fixtures";
   std::string shot_directory;
   for (int i = 1; i < argc; ++i) {
@@ -1216,6 +1319,8 @@ int main(int argc, char** argv) {
       const int shared = run_selftest();
       const int panel = run_panel_selftest();
       return shared != 0 || panel != 0 ? 1 : 0;
+    } else if (argument == "--live") {
+      s_live = true;
     } else if (argument == "--modbus") {
       s_with_detailed_screens = false;
     } else if (argument == "--shot" && i + 1 < argc) {
@@ -1225,6 +1330,24 @@ int main(int argc, char** argv) {
     } else {
       directory = argument;
     }
+  }
+
+  std::string live_url;
+  std::string live_token;
+  if (s_live) {
+    const char* url = getenv("SIGEN_URL");
+    const char* token = getenv("SIGEN_TOKEN");
+    if (url == nullptr || *url == '\0' || token == nullptr || *token == '\0') {
+      fprintf(stderr,
+              "[sim] --live needs SIGEN_URL (https://host, no path) and SIGEN_TOKEN (the "
+              "kiosk token)\n");
+      return 1;
+    }
+    live_url = url;
+    live_token = token;
+    s_live_host = live_url.substr(live_url.find("://") == std::string::npos
+                                      ? 0
+                                      : live_url.find("://") + 3);
   }
 
   s_fixture_paths = discover_fixtures(directory);
@@ -1247,23 +1370,44 @@ int main(int argc, char** argv) {
     ui_set_fine_rotation(s_startup_tilt);
   }
 
+  if (s_live) {
+    ui_set_overlay("Waiting for data", nullptr, nullptr);
+    sim_backend_set_title("SigenStorPanel sim - live - connecting");
+    const size_t shown = live_token.size() > 4 ? 4 : live_token.size();
+    printf("[live] polling %s with token ...%s\n", live_url.c_str(),
+           live_token.substr(live_token.size() - shown).c_str());
+    if (!live_source_begin(live_url, live_token, 5)) {
+      fprintf(stderr, "[sim] curl did not start\n");
+      return 1;
+    }
+  }
+
   if (!shot_directory.empty()) {
-    const int failures = run_screenshot_pass(shot_directory);
+    const int failures =
+        s_live ? run_live_shots(shot_directory) : run_screenshot_pass(shot_directory);
+    live_source_end();
     sim_backend_end();
     return failures == 0 ? 0 : 1;
   }
 
-  show_current_fixture();
+  if (!s_live) {
+    show_current_fixture();
+  }
 
   while (sim_backend_pump()) {
     while (const int key = sim_backend_take_key()) {
       handle_key(key);
+    }
+    LiveUpdate update;
+    if (s_live && live_source_take(&update)) {
+      show_live(update);
     }
     lv_timer_handler();
     // Roughly LV_DISP_DEF_REFR_PERIOD; the renderer's vsync does the real pacing.
     sim_backend_delay(5);
   }
 
+  live_source_end();
   sim_backend_end();
   return 0;
 }
