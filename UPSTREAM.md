@@ -7,6 +7,37 @@ SigenStorPanel was started on 2026-10-27 from two of Mark's own repositories.
 | [SigenStorPuck](https://github.com/markab/SigenStorPuck) | `de3b9f5` (v0.15.2) | Almost all of `src/`, the simulator, fixtures, tools and the web installer |
 | claude-gadget (~/GitHub/claude-gadget) | `00bf7fc` | `scripts/version.py`. Its setup flow and on-device settings are the model in docs/UX.md, ported by hand, not copied |
 
+## The plan: copy and track now, a shared library later
+
+Agreed 2026-10-27. **Do not redevelop the shared layer.** It is about 9,500 lines:
+- about 7,200 lines of Arduino-free C++ that the sim compiles (the payload parser, day
+  series, history rings, all three sources' decoding, the solar model, the screen-off
+  window), covered by the selftest;
+- about 2,300 lines of network clients and the poll task.
+
+All of it has been proven against the real server and plant. What *should* be redone is
+already separate: the screens (`src/ui_panel/`), setup and settings, power and buttons.
+
+1. **Until the panel runs on hardware (end of Phase 1): copy and track, as below.** The
+   panel will probably force changes to "shared" code (memory sizes, the User-Agent name,
+   chart widths at 1024 px). A library designed before those surface would be designed
+   against guesses.
+2. **Then extract the verbatim set into a library repo, `SigenStorCore`.**
+   - It holds the code, the selftest and the fixtures, with its own CI.
+   - Both projects take it through `lib_deps`, pinned to a tag
+     (`https://github.com/markab/SigenStorCore.git#vX.Y.Z`).
+   - Use `symlink://../SigenStorCore` while working on both at once.
+   - This file and the drift script then retire.
+3. **Before the network clients go into that library, move SigenStorPuck to Arduino
+   3.3.8 too.** Plain C++ doesn't care which core it runs on; the network clients might.
+   claude-gadget already runs 3.3.8 on the same S3 boards. Do it on a branch, with a soak
+   test on the 1.75 and the 2.41.
+
+Ruled out:
+- **Folding the panel into SigenStorPuck as a third board:** two Arduino cores in one
+  PlatformIO project, and a different setup model.
+- **Git submodules:** `lib_deps` does the same job with versioning built in.
+
 ## How the copied files are treated
 
 Every copied file is in exactly one of three groups.
