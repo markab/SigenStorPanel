@@ -1,5 +1,5 @@
-// Screen (swiped 5th), landscape (600x450): today's energy sources and sinks for
-// the 2.41" board. Server source only.
+// Screen (swiped 5th): today's energy sources and sinks, across the panel's
+// 1024x600. Server source only. Started as the 2.41" board's 600x450 layout.
 //
 // The round screen's Sankey, re-laid for a wide rectangle: three source nodes
 // down the left, four sink nodes down the right, one ribbon per flow whose
@@ -21,22 +21,22 @@
 namespace {
 
 // Fixed rows for the two columns (offsets from the centre). Three sources on the
-// left, four sinks on the right, sharing a top and a bottom. With the
-// self-sufficiency figure gone (now on the load screen) the whole diagram uses
-// the full height, spread wider so the larger labels don't crowd each other.
-constexpr lv_coord_t LEFT_ROW_Y[3] = {-88, 0, 88};
-constexpr lv_coord_t RIGHT_ROW_Y[4] = {-108, -36, 36, 108};
+// left, four sinks on the right, sharing a top and a bottom, between the title
+// and the day label. Four rows at this spacing keep each name clear of the value
+// above it, which the 2.41's 72 px did not quite.
+constexpr lv_coord_t LEFT_ROW_Y[3] = {-138, -8, 122};
+constexpr lv_coord_t RIGHT_ROW_Y[4] = {-138, -51, 36, 122};
 
-// Nodes pulled in from 205, so the wider labels have room to the bezel and the
-// ribbons don't run under them.
-constexpr lv_coord_t NODE_X = 182;
-constexpr lv_coord_t NODE_WIDTH = 10;
+// Out towards the sides, with the labels outboard of the nodes, so the ribbons
+// get most of the width to cross in.
+constexpr lv_coord_t NODE_X = 340;
+constexpr lv_coord_t NODE_WIDTH = 12;
 constexpr lv_coord_t RIBBON_X = NODE_X - NODE_WIDTH / 2 - 1;  // inner edge
-constexpr lv_coord_t LABEL_X = 246;
+constexpr lv_coord_t LABEL_X = 412;
 
 // The tallest a node bar may be drawn, set by the tighter (sink) column so
 // neighbours never touch.
-constexpr lv_coord_t MAX_NODE_PX = 46;
+constexpr lv_coord_t MAX_NODE_PX = 66;
 constexpr lv_coord_t MIN_FLOW_PX = 2;
 constexpr lv_coord_t SLICE_PX = 3;
 constexpr lv_opa_t RIBBON_OPA = LV_OPA_60;
@@ -211,7 +211,7 @@ lv_obj_t* screen_flows_create(lv_obj_t* parent) {
   lv_obj_center(s_canvas);
   lv_obj_add_event_cb(s_canvas, draw_ribbons, LV_EVENT_DRAW_MAIN_END, nullptr);
 
-  lv_obj_t* title = make_label(s_root, PUCK_FONT_SMALL, PUCK_COLOUR_MUTED, 0, -208);
+  lv_obj_t* title = make_label(s_root, PUCK_FONT_SMALL, PUCK_COLOUR_MUTED, 0, -226);
   lv_obj_set_style_text_letter_space(title, 3, LV_PART_MAIN);
   lv_label_set_text(title, "FLOWS  \xC2\xB7  kWh");
 

@@ -23,11 +23,24 @@
 
 namespace {
 
-constexpr lv_coord_t BAND_WIDTH = 564;  // 00:00..24:00 touch the inner ring both sides
-constexpr lv_coord_t BAND_HEIGHT = 130;
-constexpr lv_coord_t BAND_Y = 108;   // lower strip, bottom clear of the ring corners
+constexpr lv_coord_t BAND_WIDTH = 944;  // 00:00..24:00, just inside the edge bar both sides
+constexpr lv_coord_t BAND_HEIGHT = 200;
+constexpr lv_coord_t BAND_Y = 90;    // the lower half, clear of the figures and above the day label
 constexpr lv_opa_t BAND_GHOST = 70;  // lower than the others: home is near-white
 constexpr uint8_t BAND_SMOOTHING = 7;
+
+// The figures across the top half, two columns spread out from the centre; the
+// chart has the lower half to itself. The right column's first caption shares
+// the left's top line.
+constexpr lv_coord_t COL_L = -230;
+constexpr lv_coord_t COL_R = 210;
+constexpr lv_coord_t CAPTION_Y = -196;
+constexpr lv_coord_t HERO_Y = -146;
+constexpr lv_coord_t UNIT_Y = -104;
+constexpr lv_coord_t PILL_Y = -64;
+constexpr lv_coord_t STAT1_Y = -162;
+constexpr lv_coord_t STAT2_CAP_Y = -122;
+constexpr lv_coord_t STAT2_Y = -88;
 
 lv_obj_t* s_root = nullptr;
 lv_obj_t* s_band = nullptr;
@@ -77,21 +90,21 @@ lv_obj_t* screen_load_create(lv_obj_t* parent, bool with_breakdown) {
 
   // Same top-quadrant layout as the solar screen: left column of caption /
   // headline / unit / pill, top lines at -156.
-  lv_obj_t* caption = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, -110, -156);
+  lv_obj_t* caption = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, COL_L, CAPTION_Y);
   lv_label_set_text(caption, "CONSUMED");
-  s_headline = make_label(s_root, PUCK_FONT_HERO, PUCK_COLOUR_TEXT, -110, -106);
+  s_headline = make_label(s_root, PUCK_FONT_HERO, PUCK_COLOUR_TEXT, COL_L, HERO_Y);
   lv_label_set_text(s_headline, "--");
-  lv_obj_t* unit = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, -110, -64);
+  lv_obj_t* unit = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, COL_L, UNIT_Y);
   lv_label_set_text(unit, "kWh used");
-  s_pill = pill_create(s_root, PUCK_COLOUR_HOME, -110, -24);
+  s_pill = pill_create(s_root, PUCK_COLOUR_HOME, COL_L, PILL_Y);
 
   // Self-sufficiency, top-right — moved here off the flows screen. Only shown when
   // the source carries the day's flow split (server), so on Modbus/HA the quadrant
   // stays empty rather than reading a false 100%.
-  s_selfsuff_caption = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, 150, -156);
+  s_selfsuff_caption = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, COL_R, CAPTION_Y);
   lv_label_set_text(s_selfsuff_caption, "SELF-SUFFICIENT");
   lv_obj_add_flag(s_selfsuff_caption, LV_OBJ_FLAG_HIDDEN);
-  s_selfsuff = make_label(s_root, PUCK_FONT_LARGE, PUCK_COLOUR_HOME, 150, -122);
+  s_selfsuff = make_label(s_root, PUCK_FONT_LARGE, PUCK_COLOUR_HOME, COL_R, STAT1_Y);
   lv_label_set_text(s_selfsuff, "");
   return s_root;
 }

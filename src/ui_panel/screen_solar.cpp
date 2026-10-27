@@ -22,14 +22,30 @@ namespace {
 
 // The day's generation curve, ghosted right back behind the figures. Range auto,
 // so a dull day and a bright one both fill the band.
-constexpr lv_coord_t BAND_WIDTH = 564;  // 00:00..24:00 touch the inner ring both sides
-constexpr lv_coord_t BAND_HEIGHT = 130;
-constexpr lv_coord_t BAND_Y = 108;   // lower strip, bottom clear of the ring corners
+constexpr lv_coord_t BAND_WIDTH = 944;  // 00:00..24:00, just inside the edge bar both sides
+constexpr lv_coord_t BAND_HEIGHT = 200;
+constexpr lv_coord_t BAND_Y = 90;    // the lower half, clear of the figures and above the day label
 constexpr lv_opa_t BAND_GHOST = 130;      // the actual generation, more present
 constexpr lv_opa_t FORECAST_GHOST = 55;   // the forecast behind it, fainter
 constexpr uint8_t BAND_SMOOTHING = 7;
 
-// 288 columns for the forecast band, allocated in PSRAM by screen_solar_create().
+// The figures across the top half, two columns spread out from the centre; the
+// chart has the lower half to itself. The right column's first caption shares
+// the left's top line.
+constexpr lv_coord_t COL_L = -230;
+constexpr lv_coord_t COL_R = 210;
+constexpr lv_coord_t CAPTION_Y = -196;
+constexpr lv_coord_t HERO_Y = -146;
+constexpr lv_coord_t UNIT_Y = -104;
+constexpr lv_coord_t PILL_Y = -64;
+constexpr lv_coord_t STAT1_Y = -162;
+constexpr lv_coord_t STAT2_CAP_Y = -122;
+constexpr lv_coord_t STAT2_Y = -88;
+
+// The forecast band's columns, allocated in PSRAM by screen_solar_create(). One
+// per pixel of width is more than chart_band ever asks for at its 2 px a column,
+// whatever the band's width.
+constexpr size_t FORECAST_COLUMNS = PUCK_LCD_WIDTH;
 HistoryColumn* s_forecast_cols = nullptr;
 
 lv_obj_t* s_root = nullptr;
@@ -67,7 +83,7 @@ lv_obj_t* screen_solar_create(lv_obj_t* parent, uint8_t /*figures*/) {
 
   // The forecast curve, faintest and behind, so the future half shows through
   // where the actual has nothing yet. Fed from forecast_store, not the ring.
-  s_forecast_cols = static_cast<HistoryColumn*>(psram_alloc(288 * sizeof(HistoryColumn)));
+  s_forecast_cols = static_cast<HistoryColumn*>(psram_alloc(FORECAST_COLUMNS * sizeof(HistoryColumn)));
   s_forecast_band = chart_band_create(s_root, HistorySeries::Pv, PUCK_COLOUR_SOLAR);
   if (s_forecast_band != nullptr) {
     lv_obj_set_size(s_forecast_band, BAND_WIDTH, BAND_HEIGHT);
@@ -88,24 +104,24 @@ lv_obj_t* screen_solar_create(lv_obj_t* parent, uint8_t /*figures*/) {
   // Generation against today's forecast; hidden outright when there is none.
   s_edge = edge_bar_create(s_root);
 
-  lv_obj_t* caption = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, -110, -156);
+  lv_obj_t* caption = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, COL_L, CAPTION_Y);
   lv_label_set_text(caption, "GENERATED");
-  s_headline = make_label(s_root, PUCK_FONT_HERO, PUCK_COLOUR_TEXT, -110, -106);
+  s_headline = make_label(s_root, PUCK_FONT_HERO, PUCK_COLOUR_TEXT, COL_L, HERO_Y);
   lv_label_set_text(s_headline, "--");
-  lv_obj_t* unit = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, -110, -64);
+  lv_obj_t* unit = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, COL_L, UNIT_Y);
   lv_label_set_text(unit, "kWh so far");
-  s_pill = pill_create(s_root, PUCK_COLOUR_SOLAR, -110, -24);
+  s_pill = pill_create(s_root, PUCK_COLOUR_SOLAR, COL_L, PILL_Y);
 
   // Top-right stats: the descriptor word muted above each figure, the number
   // itself LARGE below — the word still reads as the label, matching "GENERATED"
   // over the headline on the left, whose top line this column now aligns to.
-  s_forecast_caption = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, 150, -156);
+  s_forecast_caption = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, COL_R, CAPTION_Y);
   lv_label_set_text(s_forecast_caption, "FORECAST");
-  s_forecast = make_label(s_root, PUCK_FONT_LARGE, PUCK_COLOUR_TEXT, 150, -122);
+  s_forecast = make_label(s_root, PUCK_FONT_LARGE, PUCK_COLOUR_TEXT, COL_R, STAT1_Y);
   lv_label_set_text(s_forecast, "");
-  s_remaining_caption = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, 150, -82);
+  s_remaining_caption = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, COL_R, STAT2_CAP_Y);
   lv_label_set_text(s_remaining_caption, "REMAINING");
-  s_remaining = make_label(s_root, PUCK_FONT_LARGE, PUCK_COLOUR_TEXT, 150, -48);
+  s_remaining = make_label(s_root, PUCK_FONT_LARGE, PUCK_COLOUR_TEXT, COL_R, STAT2_Y);
   lv_label_set_text(s_remaining, "");
   return s_root;
 }
@@ -123,7 +139,10 @@ void screen_solar_update(const Snapshot& snapshot) {
     uint32_t from = 0;
     uint32_t to = 0;
     float peak = 0.0f;
-    const size_t n = chart_band_column_count(s_forecast_band);
+    size_t n = chart_band_column_count(s_forecast_band);
+    if (n > FORECAST_COLUMNS) {
+      n = FORECAST_COLUMNS;
+    }
     if (n > 0 && s_forecast_cols != nullptr && snapshot.valid && snapshot.solar.configured &&
         history_window(history_view(), &from, &to) &&
         forecast_store_columns(from, to, s_forecast_cols, n, &peak) && peak > 0.0f) {

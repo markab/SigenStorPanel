@@ -20,9 +20,9 @@ namespace {
 
 // The day's grid power, ghosted behind the figures. Bipolar, so it fills both
 // ways from the middle; the range is symmetric, set by chart_band.
-constexpr lv_coord_t BAND_WIDTH = 564;  // 00:00..24:00 touch the inner ring both sides
-constexpr lv_coord_t BAND_HEIGHT = 150;
-constexpr lv_coord_t BAND_Y = 96;
+constexpr lv_coord_t BAND_WIDTH = 944;  // 00:00..24:00, just inside the edge bar both sides
+constexpr lv_coord_t BAND_HEIGHT = 190;
+constexpr lv_coord_t BAND_Y = 95;    // the lower half, above the day label
 constexpr lv_opa_t BAND_GHOST = 90;
 constexpr uint8_t BAND_SMOOTHING = 5;
 
@@ -30,14 +30,14 @@ constexpr uint8_t BAND_SMOOTHING = 5;
 constexpr uint32_t EXPORT_COLOUR = 0x7FB2F0;
 
 // Two stats a column, symmetric: imported/exported on the left, frequency/voltage
-// on the right, both columns' top caption on the same -152 line.
-constexpr lv_coord_t COL_L = -150;
-constexpr lv_coord_t COL_R = 150;
-constexpr lv_coord_t ROW1_CAP_Y = -152;
-constexpr lv_coord_t ROW1_VAL_Y = -114;
-constexpr lv_coord_t ROW2_CAP_Y = -76;
-constexpr lv_coord_t ROW2_VAL_Y = -38;
-constexpr lv_coord_t PILL_Y = 16;
+// on the right, both columns' top caption on the same line, all in the top half.
+constexpr lv_coord_t COL_L = -220;
+constexpr lv_coord_t COL_R = 220;
+constexpr lv_coord_t ROW1_CAP_Y = -196;
+constexpr lv_coord_t ROW1_VAL_Y = -158;
+constexpr lv_coord_t ROW2_CAP_Y = -120;
+constexpr lv_coord_t ROW2_VAL_Y = -82;
+constexpr lv_coord_t PILL_Y = -36;
 
 lv_obj_t* s_root = nullptr;
 lv_obj_t* s_band = nullptr;

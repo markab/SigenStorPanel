@@ -19,11 +19,24 @@
 namespace {
 
 // The day's SoC, ghosted right back behind the figures.
-constexpr lv_coord_t BAND_WIDTH = 564;  // 00:00..24:00 touch the inner ring both sides
-constexpr lv_coord_t BAND_HEIGHT = 130;
-constexpr lv_coord_t BAND_Y = 108;   // lower strip, bottom clear of the ring corners
+constexpr lv_coord_t BAND_WIDTH = 944;  // 00:00..24:00, just inside the edge bar both sides
+constexpr lv_coord_t BAND_HEIGHT = 200;
+constexpr lv_coord_t BAND_Y = 90;    // the lower half, clear of the figures and above the day label
 constexpr lv_opa_t BAND_GHOST = 110;
 constexpr uint8_t BAND_SMOOTHING = 7;
+
+// The figures across the top half, two columns spread out from the centre; the
+// chart has the lower half to itself. The right column's first caption shares
+// the left's top line.
+constexpr lv_coord_t COL_L = -230;
+constexpr lv_coord_t COL_R = 210;
+constexpr lv_coord_t CAPTION_Y = -196;
+constexpr lv_coord_t HERO_Y = -146;
+constexpr lv_coord_t UNIT_Y = -104;
+constexpr lv_coord_t PILL_Y = -64;
+constexpr lv_coord_t STAT1_Y = -162;
+constexpr lv_coord_t STAT2_CAP_Y = -122;
+constexpr lv_coord_t STAT2_Y = -88;
 
 lv_obj_t* s_root = nullptr;
 lv_obj_t* s_band = nullptr;
@@ -75,21 +88,21 @@ lv_obj_t* screen_battery_create(lv_obj_t* parent) {
   // line and the right column's first caption both sit at -156.
   // The caption says what the battery is doing — CHARGING, DISCHARGING, or
   // STATE OF CHARGE when it is resting — so the pill below can just say "now".
-  s_caption = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, -110, -156);
+  s_caption = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, COL_L, CAPTION_Y);
   lv_label_set_text(s_caption, "STATE OF CHARGE");
-  s_headline = make_label(s_root, PUCK_FONT_HERO, PUCK_COLOUR_TEXT, -110, -106);
+  s_headline = make_label(s_root, PUCK_FONT_HERO, PUCK_COLOUR_TEXT, COL_L, HERO_Y);
   lv_label_set_text(s_headline, "--%");
-  s_stored = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, -110, -64);
+  s_stored = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, COL_L, UNIT_Y);
   lv_label_set_text(s_stored, "");
-  s_pill = pill_create(s_root, PUCK_COLOUR_BATTERY, -110, -24);
+  s_pill = pill_create(s_root, PUCK_COLOUR_BATTERY, COL_L, PILL_Y);
 
-  s_health_caption = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, 150, -156);
+  s_health_caption = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, COL_R, CAPTION_Y);
   lv_label_set_text(s_health_caption, "HEALTH");
-  s_health = make_label(s_root, PUCK_FONT_LARGE, PUCK_COLOUR_TEXT, 150, -122);
+  s_health = make_label(s_root, PUCK_FONT_LARGE, PUCK_COLOUR_TEXT, COL_R, STAT1_Y);
   lv_label_set_text(s_health, "");
-  s_temp_caption = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, 150, -82);
+  s_temp_caption = make_label(s_root, PUCK_FONT_BODY, PUCK_COLOUR_MUTED, COL_R, STAT2_CAP_Y);
   lv_label_set_text(s_temp_caption, "TEMP");
-  s_temp = make_label(s_root, PUCK_FONT_LARGE, PUCK_COLOUR_TEXT, 150, -48);
+  s_temp = make_label(s_root, PUCK_FONT_LARGE, PUCK_COLOUR_TEXT, COL_R, STAT2_Y);
   lv_label_set_text(s_temp, "");
   return s_root;
 }
