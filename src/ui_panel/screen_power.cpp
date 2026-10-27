@@ -51,7 +51,12 @@ constexpr lv_coord_t LEG_BOX_HEIGHT = 80;
 // is twice as wide as it is tall, and a fixed margin ran the dots into the text.
 constexpr lv_coord_t FLOW_INNER = 56;
 constexpr lv_coord_t LEG_TEXT_GAP = 14;
-constexpr int FLOW_DOTS = 2;
+// Dots are spaced along the path rather than fixed per leg, so the long side legs
+// read as a stream rather than two dots far apart. At least two, so a short leg
+// still shows a direction.
+constexpr lv_coord_t FLOW_DOT_SPACING = 34;
+constexpr int FLOW_DOTS_MIN = 2;
+constexpr int FLOW_DOTS = 10;  // the most any leg gets
 constexpr lv_coord_t FLOW_DOT_SIZE = 9;
 
 // Dot speed maps |kW| onto a travel period, so a heavy flow visibly runs faster
@@ -75,6 +80,7 @@ struct Leg {
   lv_obj_t* value = nullptr;
   lv_obj_t* detail = nullptr;
   lv_obj_t* dots[FLOW_DOTS] = {};
+  int dot_count = 0;
 
   // Endpoints of the dot path, in s_root coordinates.
   lv_point_t inner = {};
@@ -149,7 +155,19 @@ void build_leg(LegId id, const char* name, uint32_t colour, LegPos pos) {
   leg.outer.x = static_cast<lv_coord_t>(CENTRE_X + lroundf(ux * outer));
   leg.outer.y = static_cast<lv_coord_t>(CENTRE_Y + lroundf(uy * outer));
 
-  for (int i = 0; i < FLOW_DOTS; ++i) {
+  const float length = sqrtf(static_cast<float>(leg.outer.x - leg.inner.x) *
+                                (leg.outer.x - leg.inner.x) +
+                            static_cast<float>(leg.outer.y - leg.inner.y) *
+                                (leg.outer.y - leg.inner.y));
+  leg.dot_count = static_cast<int>(lroundf(length / FLOW_DOT_SPACING));
+  if (leg.dot_count < FLOW_DOTS_MIN) {
+    leg.dot_count = FLOW_DOTS_MIN;
+  }
+  if (leg.dot_count > FLOW_DOTS) {
+    leg.dot_count = FLOW_DOTS;
+  }
+
+  for (int i = 0; i < leg.dot_count; ++i) {
     lv_obj_t* dot = make_group(s_root);
     lv_obj_set_size(dot, FLOW_DOT_SIZE, FLOW_DOT_SIZE);
     lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, LV_PART_MAIN);
@@ -163,8 +181,8 @@ void build_leg(LegId id, const char* name, uint32_t colour, LegPos pos) {
 // Positions a leg's dots for its current phase. Split out from the timer so a
 // leg is drawn correctly on its very first frame.
 void place_dots(Leg& leg) {
-  for (int i = 0; i < FLOW_DOTS; ++i) {
-    float t = leg.phase + static_cast<float>(i) / static_cast<float>(FLOW_DOTS);
+  for (int i = 0; i < leg.dot_count; ++i) {
+    float t = leg.phase + static_cast<float>(i) / static_cast<float>(leg.dot_count);
     while (t >= 1.0f) {
       t -= 1.0f;
     }
@@ -203,8 +221,8 @@ void set_leg(LegId id, const MaybeFloat& power, FlowDirection direction, const c
   if (!visible) {
     lv_obj_add_flag(leg.box, LV_OBJ_FLAG_HIDDEN);
     leg.direction = FLOW_IDLE;
-    for (lv_obj_t* dot : leg.dots) {
-      lv_obj_add_flag(dot, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < leg.dot_count; ++i) {
+      lv_obj_add_flag(leg.dots[i], LV_OBJ_FLAG_HIDDEN);
     }
     return;
   }
@@ -224,11 +242,11 @@ void set_leg(LegId id, const MaybeFloat& power, FlowDirection direction, const c
   leg.direction = flowing ? direction : FLOW_IDLE;
   leg.period_ms = power.known ? period_for(power.value) : FLOW_PERIOD_SLOW_MS;
 
-  for (lv_obj_t* dot : leg.dots) {
+  for (int i = 0; i < leg.dot_count; ++i) {
     if (flowing) {
-      lv_obj_clear_flag(dot, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_clear_flag(leg.dots[i], LV_OBJ_FLAG_HIDDEN);
     } else {
-      lv_obj_add_flag(dot, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_add_flag(leg.dots[i], LV_OBJ_FLAG_HIDDEN);
     }
   }
   if (flowing) {
@@ -370,8 +388,8 @@ void screen_power_update(const Snapshot& snapshot) {
     lv_label_set_text(grid.detail, "off grid");
     lv_obj_set_style_text_color(grid.value, lv_color_hex(PUCK_COLOUR_MUTED), LV_PART_MAIN);
     grid.direction = FLOW_IDLE;
-    for (lv_obj_t* dot : grid.dots) {
-      lv_obj_add_flag(dot, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < grid.dot_count; ++i) {
+      lv_obj_add_flag(grid.dots[i], LV_OBJ_FLAG_HIDDEN);
     }
   } else {
     lv_obj_set_style_text_color(s_legs[LEG_GRID].value, lv_color_hex(PUCK_COLOUR_TEXT),
