@@ -14,6 +14,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <algorithm>
 #include <string>
@@ -26,6 +27,7 @@
 #include "snapshot.h"
 #include "ui/theme.h"
 #include "ui/ui.h"
+#include "ui_panel/settings_sheet.h"
 
 namespace {
 
@@ -401,6 +403,156 @@ void show_current_fixture() {
   printf("[sim] %s (%zu bytes)\n", name.c_str(), json.size());
 }
 
+// ---------------------------------------------------------- settings sheet ---
+//
+// Stand-in for the device's settings store, WiFi and poll task. Every action
+// writes back into this and pushes it to the sheet again, the way main.cpp does
+// from NVS, so the sheet can be clicked through here. The Device page's memory
+// figures are made up: the sim has no ESP32 heap to report.
+
+SheetDisplay s_sheet_display;
+SheetScreens s_sheet_screens;
+SheetWifi s_sheet_wifi;
+SheetData s_sheet_data;
+SheetDevice s_sheet_device;
+
+void demo_network(SheetNetwork* network, const char* ssid, int8_t rssi, bool in_range) {
+  snprintf(network->ssid, sizeof(network->ssid), "%s", ssid);
+  network->rssi = rssi;
+  network->in_range = in_range;
+}
+
+void push_sheet_device() {
+  s_sheet_device.uptime_s = lv_tick_get() / 1000 + 3 * 3600 + 12 * 60;
+  settings_sheet_set_device(s_sheet_device);
+}
+
+void seed_sheet() {
+  s_sheet_display.brightness = 204;
+  s_sheet_display.dim_brightness = 51;
+  s_sheet_display.dim_after_s = 60;
+  s_sheet_display.screen_off_set = true;
+  s_sheet_display.screen_off_start_min = 22 * 60 + 30;
+  s_sheet_display.screen_off_end_min = 6 * 60 + 30;
+  settings_sheet_set_display(s_sheet_display);
+
+  s_sheet_screens.available =
+      s_with_detailed_screens ? 0xFF : static_cast<uint8_t>(~PUCK_DETAILED_SCREENS);
+  s_sheet_screens.visible = 0xFF;
+  s_sheet_screens.rotate = static_cast<uint8_t>(~(1u << PUCK_SCREEN_COST));
+  s_sheet_screens.rotate_enabled = true;
+  s_sheet_screens.rotate_s = 20;
+  settings_sheet_set_screens(s_sheet_screens);
+
+  s_sheet_wifi.connected = true;
+  snprintf(s_sheet_wifi.ssid, sizeof(s_sheet_wifi.ssid), "Home WiFi");
+  s_sheet_wifi.rssi = -58;
+  s_sheet_wifi.channel = 6;
+  snprintf(s_sheet_wifi.ip, sizeof(s_sheet_wifi.ip), "192.168.1.100");
+  demo_network(&s_sheet_wifi.saved[0], "Home WiFi", -58, true);
+  demo_network(&s_sheet_wifi.saved[1], "Home WiFi Garage", -77, true);
+  demo_network(&s_sheet_wifi.saved[2], "Holiday cottage", 0, false);
+  s_sheet_wifi.saved_count = 3;
+  settings_sheet_set_wifi(s_sheet_wifi);
+
+  s_sheet_data.source = s_with_detailed_screens ? DataSource::Server : DataSource::Modbus;
+  s_sheet_data.server_set = true;
+  snprintf(s_sheet_data.server_host, sizeof(s_sheet_data.server_host), "sigen.example.com");
+  snprintf(s_sheet_data.modbus_host, sizeof(s_sheet_data.modbus_host), "192.168.1.20");
+  s_sheet_data.poll_s = 5;
+  settings_sheet_set_data(s_sheet_data);
+
+  snprintf(s_sheet_device.firmware, sizeof(s_sheet_device.firmware), "%s", PUCK_FW_VERSION);
+  snprintf(s_sheet_device.host, sizeof(s_sheet_device.host), "sigenstorpanel");
+  snprintf(s_sheet_device.ip, sizeof(s_sheet_device.ip), "192.168.1.100");
+  s_sheet_device.internal_free = 412 * 1024;
+  s_sheet_device.internal_largest = 192 * 1024;
+  s_sheet_device.psram_free = 29 * 1024 * 1024 + 300 * 1024;
+  s_sheet_device.psram_total = 32 * 1024 * 1024;
+  s_sheet_device.wifi_connected = true;
+  s_sheet_device.rssi = -58;
+  s_sheet_device.ever_read = true;
+  s_sheet_device.last_read_age_s = 3;
+  s_sheet_device.update = SheetUpdate::UpToDate;
+  push_sheet_device();
+}
+
+SheetActions sim_sheet_actions() {
+  SheetActions actions;
+  actions.preview_brightness = [](uint8_t level) {
+    printf("[sim] backlight preview %u\n", static_cast<unsigned>(level));
+  };
+  actions.set_display = [](const SheetDisplay& display) {
+    s_sheet_display = display;
+    printf("[sim] display: %u/%u after %us, off %s %02u:%02u-%02u:%02u, flipped %s\n",
+           display.brightness, display.dim_brightness, static_cast<unsigned>(display.dim_after_s),
+           display.screen_off_set ? "on" : "off", display.screen_off_start_min / 60,
+           display.screen_off_start_min % 60, display.screen_off_end_min / 60,
+           display.screen_off_end_min % 60, display.flipped ? "yes" : "no");
+    settings_sheet_set_display(s_sheet_display);
+  };
+  actions.set_screens = [](const SheetScreens& screens) {
+    s_sheet_screens = screens;
+    printf("[sim] screens: visible 0x%02X cycle 0x%02X, cycle %s every %us\n", screens.visible,
+           screens.rotate, screens.rotate_enabled ? "on" : "off",
+           static_cast<unsigned>(screens.rotate_s));
+    ui_set_rotate_enabled(screens.rotate_enabled);
+    ui_set_rotate_interval(screens.rotate_s);
+    settings_sheet_set_screens(s_sheet_screens);
+  };
+  actions.forget_network = [](const char* ssid) {
+    printf("[sim] forget network %s\n", ssid);
+    int kept = 0;
+    for (int i = 0; i < s_sheet_wifi.saved_count; ++i) {
+      if (strcmp(s_sheet_wifi.saved[i].ssid, ssid) != 0) {
+        s_sheet_wifi.saved[kept++] = s_sheet_wifi.saved[i];
+      }
+    }
+    s_sheet_wifi.saved_count = static_cast<uint8_t>(kept);
+    settings_sheet_set_wifi(s_sheet_wifi);
+  };
+  actions.add_network = []() {
+    printf("[sim] add network: setup portal up\n");
+    ui_set_overlay("WiFi setup", "SigenStorPanel-A1B2C3", "Join this WiFi network from your phone");
+  };
+  actions.set_source = [](DataSource source) {
+    s_sheet_data.source = source;
+    printf("[sim] source %s\n", data_source_name(source));
+    settings_sheet_set_data(s_sheet_data);
+  };
+  actions.forget_server = []() {
+    printf("[sim] forget server link\n");
+    s_sheet_data.server_set = false;
+    s_sheet_data.server_host[0] = '\0';
+    settings_sheet_set_data(s_sheet_data);
+  };
+  actions.set_modbus_host = [](const char* host) {
+    printf("[sim] modbus host %s\n", host);
+    snprintf(s_sheet_data.modbus_host, sizeof(s_sheet_data.modbus_host), "%s", host);
+    settings_sheet_set_data(s_sheet_data);
+  };
+  actions.set_poll_interval = [](uint32_t seconds) {
+    printf("[sim] poll every %us\n", static_cast<unsigned>(seconds));
+    s_sheet_data.poll_s = seconds;
+    settings_sheet_set_data(s_sheet_data);
+  };
+  actions.check_update = []() {
+    printf("[sim] update check requested\n");
+    s_sheet_device.update = SheetUpdate::Checking;
+    push_sheet_device();
+    lv_timer_t* done = lv_timer_create(
+        [](lv_timer_t*) {
+          s_sheet_device.update = SheetUpdate::UpToDate;
+          push_sheet_device();
+        },
+        1500, nullptr);
+    lv_timer_set_repeat_count(done, 1);
+  };
+  actions.install_update = []() { printf("[sim] install requested\n"); };
+  actions.restart = []() { printf("[sim] restart requested\n"); };
+  return actions;
+}
+
 void build_debug_view() {
   lv_obj_t* screen = s_debug_root;
 
@@ -434,7 +586,7 @@ void build_debug_view() {
   lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_label_set_text(hint,
                     "n/p fixture   [ ] screen   , . tilt   - = day\n"
-                    "r auto-cycle   o overlay   d dump   esc quit");
+                    "r auto-cycle   o overlay   s settings   d dump   esc quit");
   lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -34);
 }
 
@@ -452,6 +604,10 @@ void build_views() {
   // A stand-in for what net_hostname()/net_ip() return on the device, so the
   // settings screen and its QR code render here rather than only on hardware.
   ui_set_address("sigenstorpanel.local", "192.168.1.100");
+
+  settings_sheet_create(screen, sim_sheet_actions());
+  seed_sheet();
+  lv_timer_create([](lv_timer_t*) { push_sheet_device(); }, 1000, nullptr);
 
   s_debug_root = lv_obj_create(screen);
   lv_obj_remove_style_all(s_debug_root);
@@ -500,6 +656,14 @@ void handle_key(int key) {
   const size_t count = s_fixture_paths.size();
   if (key == 'o') {
     cycle_overlay();
+    return;
+  }
+  if (key == 's') {
+    if (settings_sheet_is_open()) {
+      settings_sheet_close(true);
+    } else {
+      settings_sheet_open(settings_sheet_page(), true);
+    }
     return;
   }
   if (key == 'd') {
@@ -566,6 +730,102 @@ void handle_key(int key) {
     return;
   }
   show_current_fixture();
+}
+
+void run_frames(uint32_t ms) {
+  for (uint32_t t = 0; t < ms; t += 16) {
+    sim_backend_delay(16);
+    lv_timer_handler();
+  }
+}
+
+// A finger drag from one point to another through the real input path, so the
+// gesture handling is what gets tested, not just the functions it calls.
+void drag(int x0, int y0, int x1, int y1) {
+  constexpr int STEPS = 12;
+  sim_backend_set_pointer(x0, y0, true);
+  run_frames(40);
+  for (int i = 1; i <= STEPS; ++i) {
+    sim_backend_set_pointer(x0 + (x1 - x0) * i / STEPS, y0 + (y1 - y0) * i / STEPS, true);
+    run_frames(16);
+  }
+  sim_backend_set_pointer(x1, y1, false);
+  run_frames(500);
+}
+
+bool save_shot(const std::string& directory, const char* name) {
+  lv_refr_now(nullptr);
+  const std::string path = directory + "/" + name + ".bmp";
+  if (!sim_backend_save_bmp(path.c_str())) {
+    return false;
+  }
+  printf("[sim] wrote %s\n", path.c_str());
+  return true;
+}
+
+// The settings sheet: the swipes that open, page and close it, then every page.
+int run_sheet_shots(const std::string& directory) {
+  int failures = 0;
+  const auto check = [&failures](bool ok, const char* what) {
+    printf("[sim] sheet: %s %s\n", what, ok ? "ok" : "FAILED");
+    if (!ok) {
+      ++failures;
+    }
+  };
+
+  settings_sheet_close(false);
+  ui_show_screen(0);
+  run_frames(100);
+  drag(512, 460, 512, 160);
+  check(settings_sheet_is_open(), "swipe up opens it");
+  drag(820, 330, 200, 330);
+  check(settings_sheet_page() == SheetPage::Screens, "swipe left goes to the next page");
+  drag(512, 140, 512, 460);
+  check(!settings_sheet_is_open(), "swipe down closes it");
+  ui_show_screen(2);
+  run_frames(100);
+  drag(300, 480, 300, 180);
+  check(settings_sheet_is_open() && ui_current_screen() == 2,
+        "opens from another screen and leaves it there");
+  settings_sheet_close(false);
+
+  static const char* const NAMES[] = {"sheet_1_display", "sheet_2_screens", "sheet_3_wifi",
+                                      "sheet_4_data", "sheet_5_device"};
+  for (int page = 0; page < static_cast<int>(SheetPage::Count); ++page) {
+    settings_sheet_open(static_cast<SheetPage>(page), false);
+    run_frames(100);
+    failures += save_shot(directory, NAMES[page]) ? 0 : 1;
+  }
+
+  // The states a fresh seed does not show: a changed source with its restart
+  // bar, the address keypad, and an update on offer.
+  const SheetData seeded = s_sheet_data;
+  s_sheet_data.source =
+      seeded.source == DataSource::Modbus ? DataSource::Server : DataSource::Modbus;
+  settings_sheet_set_data(s_sheet_data);
+  settings_sheet_open(SheetPage::Data, false);
+  run_frames(100);
+  failures += save_shot(directory, "sheet_4b_data_other_source") ? 0 : 1;
+  if (s_sheet_data.source == DataSource::Modbus) {
+    settings_sheet_show_keypad(true);
+    run_frames(50);
+    failures += save_shot(directory, "sheet_4c_keypad") ? 0 : 1;
+    settings_sheet_show_keypad(false);
+  }
+  s_sheet_data = seeded;
+  settings_sheet_set_data(s_sheet_data);
+
+  s_sheet_device.update = SheetUpdate::Available;
+  snprintf(s_sheet_device.update_version, sizeof(s_sheet_device.update_version), "0.1.0");
+  settings_sheet_open(SheetPage::Device, false);
+  push_sheet_device();
+  run_frames(100);
+  failures += save_shot(directory, "sheet_5b_update") ? 0 : 1;
+  s_sheet_device.update = SheetUpdate::UpToDate;
+  push_sheet_device();
+
+  settings_sheet_close(false);
+  return failures;
 }
 
 }  // namespace
@@ -694,6 +954,8 @@ int run_screenshot_pass(const std::string& output_directory) {
 
   ui_set_day_offset(0);
   ui_clear_day();
+
+  failures += run_sheet_shots(output_directory);
 
   // How close LV_MEM_SIZE is to its limit, after a pass that has built every
   // screen and drawn every fixture through them — which is as hard as the pool

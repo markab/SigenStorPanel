@@ -85,6 +85,7 @@ if it applies.
 | `src/device/buttons.{h,cpp}` | BOOT only; no PWR key |
 | `src/device/net.{h,cpp}` | `WiFi.setPins()` (the core's `hostedSetPins()`) before WiFi; own setup AP name; later the skinned portal with WiFi plus enrolment link (docs/UX.md) and a saved-network list |
 | `src/device/settings.{h,cpp}` | New NVS namespace; settings that move onto the device |
+| `src/device/settings_bridge.{h,cpp}` | New. Connects the on-device settings sheet (`src/ui_panel/settings_sheet.*`) to the settings store, WiFi, poller and updater. No upstream equivalent |
 | `src/device/settings_server.{h,cpp}` | Trimmed to the deep config (docs/UX.md) |
 | `src/device/updater.cpp` | Pages URL points at SigenStorPanel (already changed) |
 | `src/ui/theme.h` | Font roles and spacing for 1024×600 |

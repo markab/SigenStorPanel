@@ -16,6 +16,7 @@
 #include "device/poller.h"
 #include "device/power.h"
 #include "device/settings.h"
+#include "device/settings_bridge.h"
 #include "device/settings_server.h"
 #include "device/updater.h"
 #include "display.h"
@@ -350,6 +351,8 @@ void setup() {
         mapped(HaEntity::ForecastPercentage), mapped(HaEntity::ForecastPeak));
   }
   ui_create(lv_scr_act(), ui_config);
+  // Settings slide up over the screens, so built after them.
+  settings_bridge_begin();
   // Sources without a dated API have no history to step into, so the buttons
   // refuse rather than moving an indicator over figures that will never change.
   ui_set_day_stepping(source_capabilities.historical_days);
@@ -397,6 +400,7 @@ void loop() {
     settings_server_begin();
   }
   settings_server_loop();
+  settings_bridge_loop();
 
   static uint32_t last_refresh = 0;
   if (millis() - last_refresh >= UI_REFRESH_MS) {

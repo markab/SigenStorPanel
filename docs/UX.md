@@ -45,6 +45,21 @@ round screen with no room for controls. A 10.1" touchscreen has room for all of 
   Confirm with Mark in Phase 3.
 
 **2. On the device: everything someone might change on an ordinary day.**
+
+*Built in the sim 2026-10-27* (`src/ui_panel/settings_sheet.*`, wired on the device by
+`src/device/settings_bridge.*`):
+- **Getting there:** a sheet that slides up over any data screen. Swipe up opens it,
+  left and right moves between its pages, and swipe down or Done closes it. It
+  closes by itself after 60 s untouched. The old settings screen (s8) is gone from
+  the data row; its QR code and address are on the Device page.
+- **Pages:** Display, Screens, WiFi, Data, Device.
+- **Restarts:** changes that need one (screens shown, data source, upside down) put
+  up a "Restart to apply" bar.
+- **Not wired on the device yet:** "Add a network" and a multi-network list. Both
+  need the saved-network store ported from claude-gadget's `net.cpp`. Until then
+  the WiFi page lists only the current network, and forgetting it forgets WiFi.
+
+The original plan, kept for the reasoning:
 A settings screen, last in the swipe order as on the Puck, with tiles for:
 - **Display:** brightness, dim level (live preview), dim timeout, overnight
   backlight-off window.

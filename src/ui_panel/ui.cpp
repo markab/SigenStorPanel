@@ -16,6 +16,7 @@
 #include "screen_power.h"
 #include "screen_settings.h"
 #include "screen_solar.h"
+#include "settings_sheet.h"
 #include "theme.h"
 #include "ui_perf.h"
 
@@ -153,7 +154,9 @@ void run_sweep() {
 // a screen that changes under your finger is worse than a little extra wear.
 void housekeeping_tick(lv_timer_t* /*timer*/) {
   const uint32_t idle_ms = lv_disp_get_inactive_time(nullptr);
-  const bool busy = idle_ms < 4000;
+  // The settings sheet covers the screens, so changing them under it is
+  // redrawing for nobody.
+  const bool busy = idle_ms < 4000 || settings_sheet_is_open();
 
   static uint32_t rotate_elapsed = 0;
   if (s_rotate_seconds > 0 && s_rotate_enabled && !busy) {
@@ -321,9 +324,10 @@ void on_tile_scroll_end(lv_event_t* /*event*/) {
 }  // namespace
 
 lv_obj_t* ui_create(lv_obj_t* parent, const UiConfig& config) {
-  // The settings screen is built whatever its bit says: it carries the QR code
-  // and the address of this page, and is the only way back to it from the glass.
-  uint8_t wanted = config.visible | (1u << PUCK_SCREEN_SETTINGS);
+  // No settings screen in the swipe row: settings are a sheet that slides up
+  // over any screen (settings_sheet.cpp), and the QR code and address it used to
+  // carry are on the sheet's Device page.
+  uint8_t wanted = config.visible & static_cast<uint8_t>(~(1u << PUCK_SCREEN_SETTINGS));
   if (!config.with_detailed_screens) {
     wanted &= static_cast<uint8_t>(~PUCK_DETAILED_SCREENS);
   }

@@ -31,4 +31,9 @@ void sim_backend_delay(uint32_t milliseconds);
 // through them and works with no one watching the window.
 bool sim_backend_save_bmp(const char* path);
 
+// Puts the pointer somewhere, pressed or not, as if the mouse had. Lets the
+// screenshot pass drive a real swipe through LVGL's input handling rather than
+// calling the function a swipe would end up in.
+void sim_backend_set_pointer(int x, int y, bool down);
+
 void sim_backend_end();

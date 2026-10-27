@@ -225,6 +225,12 @@ bool sim_backend_save_bmp(const char* path) {
   return ok;
 }
 
+void sim_backend_set_pointer(int x, int y, bool down) {
+  s_pointer_x = static_cast<lv_coord_t>(x);
+  s_pointer_y = static_cast<lv_coord_t>(y);
+  s_pointer_down = down;
+}
+
 void sim_backend_end() {
   if (s_texture != nullptr) {
     SDL_DestroyTexture(s_texture);

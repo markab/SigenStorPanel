@@ -47,7 +47,11 @@
 #define LV_MEM_CUSTOM_REALLOC puck_lv_realloc
 #else
 #define LV_MEM_CUSTOM 0
-#define LV_MEM_SIZE (96U * 1024U)
+// 256 KB on the panel. The settings sheet's five pages (about 400 objects, all
+// built at boot) took 96 KB past its limit; at that point LVGL's out-of-memory
+// assert spins forever rather than crashing, so the sim simply hangs. The device
+// allocates from PSRAM and has no such ceiling; this is the gauge `--shot` reads.
+#define LV_MEM_SIZE (256U * 1024U)
 #endif
 
 // ------------------------------------------------------------------ time ----
