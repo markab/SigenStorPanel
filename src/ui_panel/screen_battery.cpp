@@ -23,7 +23,7 @@ constexpr lv_coord_t BAND_WIDTH = 944;  // 00:00..24:00, just inside the edge ba
 constexpr lv_coord_t BAND_HEIGHT = 200;
 constexpr lv_coord_t BAND_Y = 90;    // the lower half, clear of the figures and above the day label
 constexpr lv_opa_t BAND_GHOST = 110;
-constexpr uint8_t BAND_SMOOTHING = 7;
+constexpr uint8_t BAND_SMOOTHING = 11;  // ~33 min at 944 px
 
 // The figures across the top half, two columns spread out from the centre; the
 // chart has the lower half to itself. The right column's first caption shares

@@ -27,7 +27,7 @@ constexpr lv_coord_t BAND_HEIGHT = 200;
 constexpr lv_coord_t BAND_Y = 90;    // the lower half, clear of the figures and above the day label
 constexpr lv_opa_t BAND_GHOST = 130;      // the actual generation, more present
 constexpr lv_opa_t FORECAST_GHOST = 55;   // the forecast behind it, fainter
-constexpr uint8_t BAND_SMOOTHING = 7;
+constexpr uint8_t BAND_SMOOTHING = 11;  // ~33 min at 944 px
 
 // The figures across the top half, two columns spread out from the centre; the
 // chart has the lower half to itself. The right column's first caption shares
@@ -47,6 +47,42 @@ constexpr lv_coord_t STAT2_Y = -88;
 // whatever the band's width.
 constexpr size_t FORECAST_COLUMNS = PUCK_LCD_WIDTH;
 HistoryColumn* s_forecast_cols = nullptr;
+HistoryColumn* s_forecast_scratch = nullptr;
+
+// The forecast arrives in half-hour slots, which at this width draw as a
+// staircase. A box blur about an hour wide rounds the steps off without moving
+// the day's shape. chart_band smooths the curves it reduces itself, but not
+// columns handed to it, so this one is done here.
+constexpr int FORECAST_SMOOTHING = 21;
+
+void smooth_forecast(HistoryColumn* cols, size_t n) {
+  if (s_forecast_scratch == nullptr) {
+    return;  // unsmoothed is still a correct curve
+  }
+  for (size_t c = 0; c < n; ++c) {
+    s_forecast_scratch[c] = cols[c];
+  }
+  const int half = FORECAST_SMOOTHING / 2;
+  for (size_t c = 0; c < n; ++c) {
+    if (!s_forecast_scratch[c].known) {
+      continue;
+    }
+    float lowest = 0.0f;
+    float highest = 0.0f;
+    int counted = 0;
+    for (int k = -half; k <= half; ++k) {
+      const long j = static_cast<long>(c) + k;
+      if (j < 0 || j >= static_cast<long>(n) || !s_forecast_scratch[j].known) {
+        continue;
+      }
+      lowest += s_forecast_scratch[j].min_value;
+      highest += s_forecast_scratch[j].max_value;
+      ++counted;
+    }
+    cols[c].min_value = lowest / static_cast<float>(counted);
+    cols[c].max_value = highest / static_cast<float>(counted);
+  }
+}
 
 lv_obj_t* s_root = nullptr;
 lv_obj_t* s_forecast_band = nullptr;
@@ -84,6 +120,8 @@ lv_obj_t* screen_solar_create(lv_obj_t* parent, uint8_t /*figures*/) {
   // The forecast curve, faintest and behind, so the future half shows through
   // where the actual has nothing yet. Fed from forecast_store, not the ring.
   s_forecast_cols = static_cast<HistoryColumn*>(psram_alloc(FORECAST_COLUMNS * sizeof(HistoryColumn)));
+  s_forecast_scratch =
+      static_cast<HistoryColumn*>(psram_alloc(FORECAST_COLUMNS * sizeof(HistoryColumn)));
   s_forecast_band = chart_band_create(s_root, HistorySeries::Pv, PUCK_COLOUR_SOLAR);
   if (s_forecast_band != nullptr) {
     lv_obj_set_size(s_forecast_band, BAND_WIDTH, BAND_HEIGHT);
@@ -146,6 +184,7 @@ void screen_solar_update(const Snapshot& snapshot) {
     if (n > 0 && s_forecast_cols != nullptr && snapshot.valid && snapshot.solar.configured &&
         history_window(history_view(), &from, &to) &&
         forecast_store_columns(from, to, s_forecast_cols, n, &peak) && peak > 0.0f) {
+      smooth_forecast(s_forecast_cols, n);
       chart_band_set_columns(s_forecast_band, s_forecast_cols, n, 0.0f, peak);
       chart_band_set_range(s_band, 0.0f, peak);
     } else {

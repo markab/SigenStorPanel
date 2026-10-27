@@ -24,7 +24,7 @@ constexpr lv_coord_t BAND_WIDTH = 944;  // 00:00..24:00, just inside the edge ba
 constexpr lv_coord_t BAND_HEIGHT = 190;
 constexpr lv_coord_t BAND_Y = 95;    // the lower half, above the day label
 constexpr lv_opa_t BAND_GHOST = 90;
-constexpr uint8_t BAND_SMOOTHING = 5;
+constexpr uint8_t BAND_SMOOTHING = 9;   // ~27 min at 944 px
 
 // Import in grid blue, export a paler blue behind and below the line.
 constexpr uint32_t EXPORT_COLOUR = 0x7FB2F0;
