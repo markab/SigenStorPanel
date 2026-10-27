@@ -1,7 +1,8 @@
-// The AXP2101 PMIC: the Puck's own power state, not the house battery's.
+// The device's own power state, not the house battery's.
 //
-// Worth keeping the distinction sharp — screen 2 is about a 16 kWh home battery,
-// and this is about whether the display in your hand is plugged in.
+// SigenStorPuck's boards have an AXP2101 PMIC behind this interface. The
+// CrowPanel has none, so power.cpp answers every call with "nothing to report";
+// the interface stays so the callers read the same as upstream.
 
 #pragma once
 

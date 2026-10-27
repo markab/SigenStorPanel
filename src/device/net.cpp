@@ -6,6 +6,7 @@
 #include <esp_mac.h>
 #include <time.h>
 
+#include "board_config.h"
 #include "settings.h"
 
 namespace {
@@ -90,6 +91,13 @@ void on_connected() {
 }  // namespace
 
 void net_begin() {
+  // The P4 has no radio: WiFi is the C6 over SDIO (esp-hosted), and this board's
+  // data lines are not the core's compiled-in default. Must come before the
+  // first WiFi call, which is what brings esp-hosted up. See docs/HARDWARE.md.
+  if (!WiFi.setPins(PUCK_SDIO_CLK, PUCK_SDIO_CMD, PUCK_SDIO_D0, PUCK_SDIO_D1, PUCK_SDIO_D2,
+                    PUCK_SDIO_D3, PUCK_SDIO_C6_RESET)) {
+    Serial.println("[net] could not set the C6's SDIO pins; WiFi will use the core's defaults");
+  }
   WiFi.mode(WIFI_STA);
 
   // Read once and held: mDNS and the DHCP hostname are both registered a single
