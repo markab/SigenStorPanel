@@ -79,10 +79,11 @@ if it applies.
 |---|---|
 | `src/board_config.h` | Includes the one board profile; own version number |
 | `src/board_crowpanel_101.h` | New. Same symbol names as SigenStorPuck's profiles |
-| `src/main.cpp` | No `power_hold()`, no AMOLED sweep, P4 bring-up order |
-| `src/device/power.{h,cpp}` | No AXP2101, no battery latch, no `ext0` wake on the P4; becomes backlight control |
+| `src/main.cpp` | No `power_hold()`, no USB-CDC wait, no AMOLED sweep |
+| `src/display_dsi.cpp`, `src/touch_gt911.cpp` | New. This board's backends behind the verbatim `display.h` / `touch.h` contracts. Upstream's `display.cpp` / `touch.cpp` are the equivalents |
+| `src/device/power.{h,cpp}` | No AXP2101, no battery latch, no `ext0` wake on the P4. Same interface, every call a no-op; the backlight is in `display_dsi.cpp` |
 | `src/device/buttons.{h,cpp}` | BOOT only; no PWR key |
-| `src/device/net.{h,cpp}` | `hostedSetPins()` before WiFi; skinned portal with WiFi plus enrolment link (docs/UX.md); saved-network list |
+| `src/device/net.{h,cpp}` | `WiFi.setPins()` (the core's `hostedSetPins()`) before WiFi; own setup AP name; later the skinned portal with WiFi plus enrolment link (docs/UX.md) and a saved-network list |
 | `src/device/settings.{h,cpp}` | New NVS namespace; settings that move onto the device |
 | `src/device/settings_server.{h,cpp}` | Trimmed to the deep config (docs/UX.md) |
 | `src/device/updater.cpp` | Pages URL points at SigenStorPanel (already changed) |
@@ -118,6 +119,18 @@ API. They are snapshots; for current versions read them in ../SigenStorPuck.
 - `board_1p75.h` and `board_2p41.h`.
 - XPowersLib and the AXP2101 code paths.
 - SigenStorPuck's README and STL files.
+
+## Waiting on upstream
+
+These are changes this repo needs in verbatim files. Each one is made in SigenStorPuck
+first, then pulled here; none has been made yet. Add a row whenever work here turns
+one up, and delete the row once the pull lands and is in the pull log.
+
+| Found | Files (verbatim) | What upstream should change | Until then |
+|---|---|---|---|
+| 2026-10-27, Phase 0a | `src/device/sigen_api.cpp`, `solar_api.cpp`, `home_assistant_api.cpp` | The User-Agent is hardcoded as `"SigenStorPuck/" PUCK_FW_VERSION " (ESP32-S3)"`. Build it from two new `board_config.h` macros: a product name and a chip name | The panel identifies itself to the server and Home Assistant as a SigenStorPuck on an S3 |
+| 2026-10-27, Phase 0a | `src/device/modbus_api.cpp` | Calls `NetworkClient::flush()`, which Arduino 3.3 deprecates in favour of `clear()`. Fix it when SigenStorPuck moves to 3.3.8 (step 3 of the plan above). `settings_server.cpp` has the same two calls but is adapted here, so fix those here at the same time | A deprecation warning on every panel build. It still works |
+| 2026-10-27, Phase 0a | `src/display.h`, `src/touch.h` | Their comments describe the CO5300 panel and CST9217 touch. The contract is generic, so describe it generically | Comments name the wrong chips. The functions are right |
 
 ## Pull log
 

@@ -23,8 +23,9 @@ records its V1 facts, and it saved re-deriving them twice.
     `Advance_P4_On-Board_ESP32C6_Firmware_V2.12.3_2026_04_08`.
   - **Licence not yet checked.** Treat the code as a reference for facts (pins, timings,
     register values) and do not copy it in until the licence is known.
-- **EK79007 init sequence:** Espressif's `esp_lcd_ek79007` component (Apache-2.0). This
-  one may be copied, with attribution in NOTICE.
+- **EK79007 init sequence:** Espressif's `esp_lcd_ek79007` component (Apache-2.0).
+  GFX Library for Arduino 1.6.8 already carries it as `ek79007_init_operations`, and
+  `display_dsi.cpp` uses that, so nothing is copied into this repo.
 
 ## The chip
 
@@ -49,7 +50,7 @@ records its V1 facts, and it saved re-deriving them twice.
 | LCD reset | **GPIO41** |
 | Backlight power | **GPIO29** (supply switch) |
 | Backlight PWM | **GPIO31, 30 kHz** |
-| DSI PHY supply | P4 internal LDO; Espressif's reference designs use channel 3 at 2500 mV. **Confirm** against Elecrow's example |
+| DSI PHY supply | P4 internal LDO; Espressif's reference designs use channel 3 at 2500 mV. GFX's `Arduino_ESP32DSIPanel` hardcodes exactly that. **Confirm** against Elecrow's example |
 
 **Backlight is real PWM**, unlike the AMOLED boards, where brightness is a controller
 command. IPS does not burn in, so none of SigenStorPuck's wear-spreading applies.
@@ -98,6 +99,22 @@ log.
 **C6 firmware updates.** esp-hosted supports the host flashing the slave over the
 existing link (host-performs-slave-OTA). Elecrow documents it. Not needed unless the
 core's esp-hosted version and V2.12.3 turn out to disagree on the protocol.
+
+**What the 3.3.8 core actually does** (read from the installed package, 2026-10-27):
+- Its P4 libraries are built with `CONFIG_ESP_HOSTED_SDIO_BUS_WIDTH=4`, default data pins
+  14/15/16/17 and reset GPIO54.
+- `hostedSetPins()` changes the pins only. The core's `hostedInit()` starts from
+  `INIT_DEFAULT_HOST_SDIO_CONFIG()`, so the bus is always 4-bit through the Arduino API.
+- esp-hosted's own `struct esp_hosted_sdio_config` has a `bus_width` field, set before
+  `esp_hosted_init()`. So **V1.0 is probably reachable** by bringing esp-hosted up
+  ourselves (set the config with `bus_width = 1`, init, connect) before the first WiFi
+  call, instead of letting the core do it. Not tried. The C6 on a V1.0 must also run
+  slave firmware built for 1-bit.
+
+So: **V1.1/V1.2 is supported by the firmware as built. V1.0 needs that extra work**,
+done in Phase 2 only if a V1.0 board turns up. If it does, detect the version at boot
+(try 4-bit, fall back to 1-bit, remember the answer in NVS) rather than shipping two
+builds.
 
 **Buy V1.1 or V1.2.** Ask the seller which version they ship before ordering.
 
@@ -150,3 +167,6 @@ The speaker could give alerts later, as claude-gadget's `sound.cpp` does. Not pl
 8. Whether `Arduino_DSI_Display` drives the EK79007 with the Espressif init table, or
    whether `esp_lcd` directly is needed.
 9. Whether opening the CH341 port resets the board on macOS, as it does on the S3s.
+10. Whether `esp_read_mac(ESP_MAC_WIFI_STA)` returns a real MAC on the P4, which has no
+    radio of its own. `net.cpp` builds the setup AP's name from it. If it comes back
+    zero or errors, use the base MAC instead.
