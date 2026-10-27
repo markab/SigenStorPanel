@@ -480,6 +480,28 @@ lv_obj_t* ui_create(lv_obj_t* parent, const UiConfig& config) {
   lv_label_set_long_mode(s_overlay_detail, LV_LABEL_LONG_WRAP);
   lv_obj_align(s_overlay_detail, LV_ALIGN_CENTER, 0, 30);
 
+  // A handle at the bottom edge, the way phones mark a swipe up. Above the
+  // overlay too: settings open over "Set up WiFi" and the rest, and that is where
+  // the hint matters most. Tapping it opens them as well, for anyone who does not
+  // think to swipe.
+  lv_obj_t* handle_hit = lv_obj_create(parent);
+  lv_obj_remove_style_all(handle_hit);
+  lv_obj_set_size(handle_hit, 200, 44);
+  lv_obj_align(handle_hit, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_clear_flag(handle_hit, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_event_cb(
+      handle_hit, [](lv_event_t*) { settings_sheet_open(settings_sheet_page(), true); },
+      LV_EVENT_CLICKED, nullptr);
+  lv_obj_t* handle = lv_obj_create(handle_hit);
+  lv_obj_remove_style_all(handle);
+  lv_obj_set_size(handle, 120, 5);
+  // Inside the battery ring that runs round the edge, not under it.
+  lv_obj_align(handle, LV_ALIGN_BOTTOM_MID, 0, -22);
+  lv_obj_set_style_radius(handle, 3, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(handle, lv_color_hex(PUCK_COLOUR_TEXT), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(handle, LV_OPA_40, LV_PART_MAIN);
+  lv_obj_clear_flag(handle, LV_OBJ_FLAG_CLICKABLE);
+
   // The sweep band, above everything including the overlay.
   s_sweep = lv_obj_create(s_shift_root);
   lv_obj_remove_style_all(s_sweep);
