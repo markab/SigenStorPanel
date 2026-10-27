@@ -15,6 +15,7 @@
 #include "device/net.h"
 #include "device/poller.h"
 #include "device/power.h"
+#include "device/presence.h"
 #include "device/settings.h"
 #include "device/settings_bridge.h"
 #include "device/settings_server.h"
@@ -216,25 +217,35 @@ void apply_screen_schedule() {
   // tell why. The same 2024 floor sigen_api.cpp uses to judge certificates.
   const bool can_tell_the_time = now > 1704067200;
 
-  bool wanted = false;
+  bool overnight = false;
   if (settings.screen_off_set && can_tell_the_time) {
     const uint16_t minute =
         screen_local_minute(static_cast<uint32_t>(now), poller_tz_offset_min());
-    wanted = screen_window_contains(settings.screen_off_start_min, settings.screen_off_end_min,
-                                    minute);
+    overnight = screen_window_contains(settings.screen_off_start_min, settings.screen_off_end_min,
+                                       minute);
   }
 
-  if (!wanted) {
+  // The room sensor, when there is one answering: nobody seen for the set time.
+  // A sensor that has gone quiet is not believed, so a fault cannot leave the
+  // panel dark.
+  const PresenceStatus room = presence_status();
+  const uint32_t empty_after_ms = settings.presence_off_after_s * 1000;
+  const bool empty_room = settings.presence_off_after_s > 0 && room.connected && !room.present &&
+                          millis() - room.last_present_ms >= empty_after_ms;
+
+  if (!overnight && !empty_room) {
     display_set_sleep(false);
     return;
   }
   if (display_asleep()) {
     return;
   }
-  // Inside the window but recently touched or pressed: leave it up. LVGL's
-  // inactivity timer is the same one the idle dim reads, so a swipe through the
-  // screens holds it awake as naturally as it holds off the dim.
-  if (lv_disp_get_inactive_time(nullptr) < PUCK_SCREEN_WAKE_S * 1000) {
+  // Recently touched or pressed: leave it up. LVGL's inactivity timer is the same
+  // one the idle dim reads, so a swipe through the screens holds it awake as
+  // naturally as it holds off the dim. For the room sensor the hold is the whole
+  // timeout: someone tapping at the panel is there, whatever the radar thinks.
+  const uint32_t hold_ms = overnight ? PUCK_SCREEN_WAKE_S * 1000 : empty_after_ms;
+  if (lv_disp_get_inactive_time(nullptr) < hold_ms) {
     return;
   }
   display_set_sleep(true);
@@ -330,6 +341,7 @@ void setup() {
 
   power_begin();
   buttons_begin();
+  presence_begin();
 
   // Which screens exist is settled here and not revisited: the tileview's tiles
   // are built once, so the masks and the data source both apply on the next boot
@@ -385,6 +397,17 @@ void loop() {
   // is seen on the pass it arrives rather than the next one.
   power_loop();
   buttons_loop();
+  presence_loop();
+
+  // Someone walking in counts as activity, the same as a touch: it lifts the
+  // dim, and the screen they see is at full brightness. Only the overnight
+  // window ignores them, by design: that is for the hours the room is not used.
+  static bool was_present = false;
+  const PresenceStatus room = presence_status();
+  if (room.connected && room.present && !was_present) {
+    lv_disp_trig_activity(nullptr);
+  }
+  was_present = room.connected && room.present;
 
   // Any button press wakes a dimmed screen. buttons_loop() has already told LVGL
   // the device is active; this is the brightness half of the same thought.

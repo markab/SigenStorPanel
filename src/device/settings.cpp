@@ -19,6 +19,7 @@ constexpr const char* KEY_HA_SOLAR_SOURCE = "ha_sol_src";
 constexpr const char* KEY_POLL = "poll_s";
 constexpr const char* KEY_BRIGHTNESS = "bright";
 constexpr const char* KEY_DIM = "dim_s";
+constexpr const char* KEY_PRESENCE_OFF = "pres_off_s";
 constexpr const char* KEY_DIM_BRIGHT = "dim_bright";
 constexpr const char* KEY_ORIENT = "orient";
 constexpr const char* KEY_FINE = "fine_deg10";
@@ -91,6 +92,7 @@ void settings_begin() {
   s_settings.poll_interval_s = prefs.getUInt(KEY_POLL, s_settings.poll_interval_s);
   s_settings.brightness = prefs.getUChar(KEY_BRIGHTNESS, s_settings.brightness);
   s_settings.dim_after_s = prefs.getUInt(KEY_DIM, s_settings.dim_after_s);
+  s_settings.presence_off_after_s = prefs.getUInt(KEY_PRESENCE_OFF, s_settings.presence_off_after_s);
   s_settings.dim_brightness = prefs.getUChar(KEY_DIM_BRIGHT, s_settings.dim_brightness);
   s_settings.orientation = prefs.getUChar(KEY_ORIENT, s_settings.orientation) & 0x03;
   s_settings.fine_tenths = prefs.getShort(KEY_FINE, s_settings.fine_tenths);
@@ -283,6 +285,17 @@ bool settings_set_display(uint8_t brightness, uint32_t dim_after_s, uint8_t dim_
   s_settings.brightness = brightness;
   s_settings.dim_after_s = dim_after_s;
   s_settings.dim_brightness = dim_brightness;
+  return true;
+}
+
+bool settings_set_presence_off_after(uint32_t seconds) {
+  Preferences prefs;
+  if (!prefs.begin(NAMESPACE, /*readOnly=*/false)) {
+    return false;
+  }
+  prefs.putUInt(KEY_PRESENCE_OFF, seconds);
+  prefs.end();
+  s_settings.presence_off_after_s = seconds;
   return true;
 }
 

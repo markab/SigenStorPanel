@@ -11,6 +11,7 @@
 #include "modbus_api.h"
 #include "net.h"
 #include "poller.h"
+#include "presence.h"
 #include "settings.h"
 #include "ui/ui.h"
 #include "ui_panel/settings_sheet.h"
@@ -43,6 +44,7 @@ void push_display() {
     display.screen_off_end_min = s.screen_off_end_min;
   }
   display.flipped = s.orientation == 2;
+  display.presence_off_after_s = s.presence_off_after_s;
   settings_sheet_set_display(display);
 }
 
@@ -102,6 +104,17 @@ void push_solar() {
 bool save_home_assistant(const String& base_url, const String& token, SolarForecastSource source) {
   const Settings& s = settings_get();
   return settings_set_home_assistant(base_url, token, s.ha_entities, HA_ENTITY_COUNT, source);
+}
+
+void push_presence() {
+  const PresenceStatus room = presence_status();
+  SheetPresence presence;
+  presence.connected = room.connected;
+  presence.present = room.present;
+  presence.empty_for_s = room.present ? 0 : (millis() - room.last_present_ms) / 1000;
+  presence.has_distance = room.has_distance;
+  presence.distance_cm = room.distance;
+  settings_sheet_set_presence(presence);
 }
 
 void push_wifi() {
@@ -242,6 +255,7 @@ SheetActions actions() {
     settings_set_screen_off(display.screen_off_set, display.screen_off_start_min,
                             display.screen_off_end_min);
     settings_set_orientation(display.flipped ? 2 : 0);
+    settings_set_presence_off_after(display.presence_off_after_s);
     display_set_brightness(display.brightness);
     push_display();
   };
@@ -426,4 +440,5 @@ void settings_bridge_loop() {
   last = millis();
   push_wifi();
   push_device();
+  push_presence();
 }

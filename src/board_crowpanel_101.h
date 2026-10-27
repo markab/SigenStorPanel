@@ -126,6 +126,23 @@ static constexpr int8_t PUCK_SDIO_D3 = 14;
 // sdkconfig (CONFIG_ESP_HOSTED_SDIO_GPIO_RESET_SLAVE) before Phase 2.
 static constexpr int8_t PUCK_SDIO_C6_RESET = 54;
 
+// --------------------------------------------------------- presence sensor ---
+//
+// Optional: a Waveshare HMMD mmWave sensor on the UART1 header (labelled "UART"),
+// which gives 3.3 V at up to 1 A; the sensor wants 3.0-3.6 V at about 50 mA.
+//   sensor 3V3 -> 3V3, GND -> GND, TX -> GPIO48 (our RX), RX -> GPIO47 (our TX)
+// Its OT2 presence pin is not needed: presence comes over the UART.
+// TODO(confirm on hardware): the header's pin order, and that GPIO48 is free (an
+// Elecrow lesson drives an LED module through this header on GPIO48).
+static constexpr int8_t PUCK_PRESENCE_RX = 48;
+static constexpr int8_t PUCK_PRESENCE_TX = 47;
+static constexpr uint32_t PUCK_PRESENCE_BAUD = 115200;
+// The sensor reports about every 100 ms. Silence this long means it is not
+// there, or has stopped, and the panel stops acting on it.
+// TODO(confirm on hardware): that it reports continuously in normal mode, not
+// only on a change.
+static constexpr uint32_t PUCK_PRESENCE_LOST_MS = 10000;
+
 // ----------------------------------------------------------------- serial ---
 
 // UART0 through the CH341 bridge, not native USB-CDC.

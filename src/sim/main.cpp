@@ -467,6 +467,14 @@ void seed_sheet() {
   s_sheet_display.screen_off_end_min = 6 * 60 + 30;
   settings_sheet_set_display(s_sheet_display);
 
+  // As if a room sensor were fitted and someone were standing in front of it.
+  SheetPresence presence;
+  presence.connected = true;
+  presence.present = true;
+  presence.has_distance = true;
+  presence.distance_cm = 140;
+  settings_sheet_set_presence(presence);
+
   s_sheet_screens.available =
       s_with_detailed_screens ? 0xFF : static_cast<uint8_t>(~PUCK_DETAILED_SCREENS);
   s_sheet_screens.visible = 0xFF;
@@ -529,11 +537,13 @@ SheetActions sim_sheet_actions() {
   };
   actions.set_display = [](const SheetDisplay& display) {
     s_sheet_display = display;
-    printf("[sim] display: %u/%u after %us, off %s %02u:%02u-%02u:%02u, flipped %s\n",
+    printf("[sim] display: %u/%u after %us, off %s %02u:%02u-%02u:%02u, flipped %s, "
+           "empty room off after %us\n",
            display.brightness, display.dim_brightness, static_cast<unsigned>(display.dim_after_s),
            display.screen_off_set ? "on" : "off", display.screen_off_start_min / 60,
            display.screen_off_start_min % 60, display.screen_off_end_min / 60,
-           display.screen_off_end_min % 60, display.flipped ? "yes" : "no");
+           display.screen_off_end_min % 60, display.flipped ? "yes" : "no",
+           static_cast<unsigned>(display.presence_off_after_s));
     settings_sheet_set_display(s_sheet_display);
   };
   actions.set_screens = [](const SheetScreens& screens) {
@@ -1193,6 +1203,8 @@ int run_screenshot_pass(const std::string& output_directory) {
 // src/sim/selftest.cpp — checks for the shared Modbus and history code, which
 // needs no display and so runs before any of the LVGL setup below.
 int run_selftest();
+// src/sim/panel_selftest.cpp — the same for this repo's own code.
+int run_panel_selftest();
 
 int main(int argc, char** argv) {
   // sim [fixture-dir] [--shot output-dir] [--selftest] [--modbus]
@@ -1201,7 +1213,9 @@ int main(int argc, char** argv) {
   for (int i = 1; i < argc; ++i) {
     const std::string argument = argv[i];
     if (argument == "--selftest") {
-      return run_selftest();
+      const int shared = run_selftest();
+      const int panel = run_panel_selftest();
+      return shared != 0 || panel != 0 ? 1 : 0;
     } else if (argument == "--modbus") {
       s_with_detailed_screens = false;
     } else if (argument == "--shot" && i + 1 < argc) {

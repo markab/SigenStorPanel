@@ -45,6 +45,13 @@ and, with Home Assistant, which forecast to use. The Data page's "Devices" opens
 Modbus device editor (plant address, four IDs and kinds). The web page remains the
 only place for Home Assistant entity mapping, and an alternative for the rest.
 
+**Room sensor (optional).** With an mmWave sensor on the UART header, the Display
+page's "Off when empty for" (never, or 1 to 60 minutes; 5 by default) switches the
+backlight off once nobody has been seen and nobody has touched the panel for that
+long. Someone walking in brings it straight back at full brightness, except inside
+the overnight window, which only a touch overrides. A silent sensor is ignored.
+Wiring is in docs/HARDWARE.md.
+
 Firmware updates are on the Device page too: check now, install with a progress
 screen, and an opt-in "check automatically" (after boot, then every 12 h). A dot on
 the Device tab says one is waiting.

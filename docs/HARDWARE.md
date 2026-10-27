@@ -146,6 +146,34 @@ docs/UX.md).
 - **Serial screenshots are impractical.** 1024×600×2 B is 1.2 MB, about 105 s per screen
   at 115200 baud. Serve them over HTTP from the device instead (`GET /screenshot`).
 
+## Optional: mmWave presence sensor
+
+A **Waveshare HMMD mmWave sensor** ([wiki](https://www.waveshare.com/wiki/HMMD_mmWave_Sensor))
+can switch the backlight off when nobody is in the room. Without one, nothing changes.
+
+| | |
+|---|---|
+| Sensor | 3.0-3.6 V, about 50 mA; UART 115200 8N1 at 3.3 V; pins 3V3, GND, TX, RX, OT2 |
+| Range | wall-mounted: 8 m for movement, 6 m for micro-movement (breathing, typing) |
+| Connection | the board's **UART1 header** ("UART"): 3.3 V out at up to 1 A, RX **GPIO48**, TX **GPIO47** |
+| Wiring | sensor 3V3 to 3V3, GND to GND, **TX to GPIO48**, **RX to GPIO47**. OT2 not needed |
+
+Why the UART and not OT2:
+- OT2 is a single high/low line, but the only free header with power is the UART one,
+  and its two signal pins are RX and TX.
+- The UART also gives distance and, more usefully, proves the sensor is alive. A
+  silent sensor is ignored rather than trusted, so a loose wire cannot leave the
+  panel dark.
+
+The panel sends the sensor no commands. It reads the default text output ("ON",
+"OFF", "Range n") and also understands report-mode frames, in case the sensor has
+been reconfigured with Waveshare's tool. Waveshare does not document the commands
+that set range or sensitivity, so changing those means their tool for now.
+
+Mounting: on the wall at 1.5-2 m, pins at the top, facing the room. Behind the
+panel's case works only if the case material is radar-transparent: plastic yes,
+metal no. Waveshare has a radome design guide.
+
 ## Also on the board (unused for now)
 
 - **Speaker and amp:** I2S LRCLK 21, BCLK 22, SDATA 23; amp enable GPIO30.
@@ -169,3 +197,7 @@ The speaker could give alerts later, as claude-gadget's `sound.cpp` does. Not pl
 9. Whether opening the CH341 port resets the board on macOS, as it does on the S3s.
 10. Whether scanning (`WiFi.scanNetworks(true)`) works through esp-hosted as it does on an
     S3. The network picker and roaming both depend on it.
+11. The UART1 header's pin order, and that GPIO48 is free for the presence sensor.
+12. Whether the HMMD sends its text output continuously (every ~100 ms) or only on a
+    change. The panel treats 10 s of silence as "no sensor". If the sensor only
+    reports changes, that check needs the report-mode frames, or OT2, instead.

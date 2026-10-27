@@ -40,6 +40,17 @@ struct SheetDisplay {
   uint16_t screen_off_start_min = 22 * 60 + 30;
   uint16_t screen_off_end_min = 7 * 60;
   bool flipped = false;  // upside down; applies on the next boot
+  // With a presence sensor: backlight off after nobody is seen for this long.
+  uint32_t presence_off_after_s = 300;  // 0: never
+};
+
+// The optional mmWave room sensor, as last heard.
+struct SheetPresence {
+  bool connected = false;
+  bool present = false;
+  uint32_t empty_for_s = 0;  // how long nobody has been seen
+  bool has_distance = false;
+  uint16_t distance_cm = 0;
 };
 
 struct SheetScreens {
@@ -213,6 +224,7 @@ struct SheetActions {
 void settings_sheet_create(lv_obj_t* parent, const SheetActions& actions);
 
 void settings_sheet_set_display(const SheetDisplay& display);
+void settings_sheet_set_presence(const SheetPresence& presence);
 void settings_sheet_set_screens(const SheetScreens& screens);
 void settings_sheet_set_wifi(const SheetWifi& wifi);
 void settings_sheet_set_data(const SheetData& data);

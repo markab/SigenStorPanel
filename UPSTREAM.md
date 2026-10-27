@@ -85,6 +85,7 @@ if it applies.
 | `src/device/buttons.{h,cpp}` | BOOT only; no PWR key |
 | `src/device/net.{h,cpp}` | Rewritten. `WiFi.setPins()` before WiFi; no WiFiManager and no captive portal; up to five saved networks, joining the strongest in range (ported from claude-gadget); scans and joins driven from the on-glass picker |
 | `src/device/settings.{h,cpp}` | New NVS namespace; settings that move onto the device |
+| `src/presence_parse.{h,cpp}`, `src/device/presence.{h,cpp}`, `src/sim/panel_selftest.cpp` | New. The optional mmWave room sensor, and checks for the panel's own Arduino-free code. `selftest.cpp` stays verbatim; the sim's `--selftest` runs both |
 | `src/device/settings_bridge.{h,cpp}` | New. Connects the on-device settings sheet (`src/ui_panel/settings_sheet.*`) to the settings store, WiFi, poller and updater. No upstream equivalent |
 | `src/device/settings_server.{h,cpp}` | Trimmed to the deep config (docs/UX.md) |
 | `src/device/updater.cpp`, `src/device/updater_progress.h` | Pages URL points at SigenStorPanel. Install progress for the on-screen bar, restarts itself after showing 100%, and with "check automatically" on checks after boot and every 12 h |

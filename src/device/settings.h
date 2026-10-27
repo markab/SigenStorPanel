@@ -77,6 +77,10 @@ struct Settings {
   ModbusDevice modbus_devices[SETTINGS_MAX_MODBUS_DEVICES];
 
   uint32_t poll_interval_s = 5;
+  // With a presence sensor connected: switch the backlight off once nobody has
+  // been seen, and no one has touched the panel, for this long. 0 never does.
+  // Ignored when no sensor is answering, so a panel without one is unaffected.
+  uint32_t presence_off_after_s = 300;
   uint8_t brightness = 120;
   // Dimmed rather than switched off: a status display you have to wake to read is
   // a worse status display. 0 disables dimming entirely.
@@ -213,6 +217,8 @@ bool settings_set_display(uint8_t brightness, uint32_t dim_after_s,
 bool settings_set_screen_off(bool set, uint16_t start_min, uint16_t end_min);
 
 bool settings_set_poll_interval(uint32_t seconds);
+
+bool settings_set_presence_off_after(uint32_t seconds);
 
 // Takes effect on the next boot: the panel's rotation is set when it is brought up.
 bool settings_set_orientation(uint8_t quarter_turns);

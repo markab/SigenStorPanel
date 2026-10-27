@@ -19,6 +19,7 @@ const char* const PAGE_NAMES[PAGE_COUNT] = {"Display", "Screens", "WiFi", "Data"
 
 // Steps for the sliders that pick from a list rather than a range.
 constexpr uint32_t DIM_AFTER_STEPS[] = {0, 15, 30, 60, 120, 300, 600, 1800};
+constexpr uint32_t ROOM_EMPTY_STEPS[] = {0, 60, 120, 300, 600, 900, 1800, 3600};
 constexpr uint32_t CYCLE_STEPS[] = {5, 10, 15, 20, 30, 45, 60, 120, 300};
 constexpr uint32_t POLL_STEPS[] = {2, 3, 5, 10, 15, 30, 60};
 constexpr uint16_t TIME_STEP_MIN = 15;
@@ -76,6 +77,10 @@ lv_obj_t* s_off_times = nullptr;
 lv_obj_t* s_off_start = nullptr;
 lv_obj_t* s_off_end = nullptr;
 lv_obj_t* s_flip_switch = nullptr;
+lv_obj_t* s_room = nullptr;
+lv_obj_t* s_room_value = nullptr;
+lv_obj_t* s_room_status = nullptr;
+SheetPresence s_presence;
 
 // Screens
 constexpr int LISTED_SCREENS = PUCK_SCREEN_COUNT - 1;  // all but settings
@@ -226,6 +231,24 @@ void refresh_restart_bar() {
   lv_obj_clear_flag(s_restart_bar, LV_OBJ_FLAG_HIDDEN);
 }
 
+void refresh_presence() {
+  char line[80];
+  char span[24];
+  if (!s_presence.connected) {
+    snprintf(line, sizeof(line), "No sensor answering. An mmWave sensor on the UART header turns "
+                                 "this on.");
+  } else if (s_presence.present && s_presence.has_distance) {
+    snprintf(line, sizeof(line), "Someone here, %.1f m away", s_presence.distance_cm / 100.0f);
+  } else if (s_presence.present) {
+    snprintf(line, sizeof(line), "Someone here");
+  } else {
+    format_duration(span, sizeof(span), s_presence.empty_for_s);
+    snprintf(line, sizeof(line), "Nobody here for %s", span);
+  }
+  lv_label_set_text(s_room_status, line);
+  set_disabled(s_room, !s_presence.connected);
+}
+
 void refresh_display() {
   char value[24];
   if (!lv_obj_has_state(s_bright, LV_STATE_PRESSED)) {
@@ -258,6 +281,14 @@ void refresh_display() {
                        LV_PART_MAIN);
 
   set_checked(s_flip_switch, s_display.flipped);
+
+  const int room_step = nearest_step(ROOM_EMPTY_STEPS, s_display.presence_off_after_s);
+  if (!lv_obj_has_state(s_room, LV_STATE_PRESSED)) {
+    lv_slider_set_value(s_room, room_step, LV_ANIM_OFF);
+  }
+  format_step(value, sizeof(value), ROOM_EMPTY_STEPS[room_step]);
+  lv_label_set_text(s_room_value, value);
+  refresh_presence();
   refresh_restart_bar();
 }
 
@@ -591,6 +622,14 @@ void on_time_step(lv_event_t* event) {
   refresh_display();
 }
 
+void on_room(lv_event_t* event) {
+  s_display.presence_off_after_s = ROOM_EMPTY_STEPS[lv_slider_get_value(s_room)];
+  if (lv_event_get_code(event) == LV_EVENT_RELEASED) {
+    save_display();
+  }
+  refresh_display();
+}
+
 void on_flip(lv_event_t* /*event*/) {
   s_display.flipped = lv_obj_has_state(s_flip_switch, LV_STATE_CHECKED);
   save_display();
@@ -886,9 +925,15 @@ void build_display(lv_obj_t* tile) {
                                 &s_dim_after_value);
   lv_obj_add_event_cb(s_dim_after, on_dim_after, LV_EVENT_VALUE_CHANGED, nullptr);
   lv_obj_add_event_cb(s_dim_after, on_dim_after, LV_EVENT_RELEASED, nullptr);
-  spacer(left);
-  hint(left, "Drag to see it on the panel. Saved when you let go. Any touch brings full "
-             "brightness back.");
+  divider(left);
+  caption(left, "ROOM SENSOR");
+  s_room = labelled_slider(left, "Off when empty for", 0,
+                           static_cast<int32_t>(sizeof(ROOM_EMPTY_STEPS) / sizeof(ROOM_EMPTY_STEPS[0])) - 1,
+                           &s_room_value);
+  lv_obj_set_style_opa(s_room, LV_OPA_40, LV_STATE_DISABLED);
+  lv_obj_add_event_cb(s_room, on_room, LV_EVENT_VALUE_CHANGED, nullptr);
+  lv_obj_add_event_cb(s_room, on_room, LV_EVENT_RELEASED, nullptr);
+  s_room_status = hint(left, "");
 
   lv_obj_t* right = card(body, 360, CARD_H);
   caption(right, "OVERNIGHT");
@@ -1948,4 +1993,9 @@ void settings_sheet_show_array(int index) {
 
 const SheetActions& sheet_kit::sheet_actions() {
   return s_actions;
+}
+
+void settings_sheet_set_presence(const SheetPresence& presence) {
+  s_presence = presence;
+  refresh_presence();
 }
