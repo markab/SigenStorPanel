@@ -153,6 +153,10 @@ static constexpr uint32_t PUCK_SERIAL_BAUD = 115200;
 // The short dimension; the bound for any shared overlay written for a square.
 static constexpr int16_t PUCK_SAFE_SQUARE = 600;
 
+// Draw the day charts' outline as one anti-aliased line (chart_band.cpp) rather
+// than a 2 px block per column, which shows as stairs at this panel's ~117 ppi.
+static constexpr bool PUCK_CHART_SMOOTH_EDGE = true;
+
 static constexpr uint32_t PUCK_STALE_AFTER_S = 30;
 static constexpr int PUCK_KW_DECIMALS = 2;
 static constexpr int PUCK_MAX_DAYS_BACK = 7;

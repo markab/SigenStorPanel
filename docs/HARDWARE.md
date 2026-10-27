@@ -206,3 +206,7 @@ The speaker could give alerts later, as claude-gadget's `sound.cpp` does. Not pl
     times the draw calls of the old 3 px slices, on every frame of a swipe. If it
     drags, render the ribbons once into a PSRAM canvas when the data changes and
     blit that instead.
+14. Whether the anti-aliased chart outline (`PUCK_CHART_SMOOTH_EDGE`) keeps a swipe
+    between the chart screens smooth. It draws a line segment per chart column and
+    the fill a pixel column at a time, roughly twice the work of the column path.
+    If it drags, set it to false in `src/board_crowpanel_101.h`.

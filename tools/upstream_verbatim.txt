@@ -2,7 +2,7 @@
 # tools/upstream_drift.sh compares each against the base below and SigenStorPuck's main.
 # One path per line. Move a file out of this list (into UPSTREAM.md's adapted table)
 # the moment it is deliberately changed here.
-base 18c8451
+base f414186
 include/puck_lv_mem.h
 src/button_gesture.cpp
 src/button_gesture.h

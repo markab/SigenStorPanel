@@ -142,3 +142,4 @@ one up, and delete the row once the pull lands and is in the pull log.
 |---|---|---|
 | 2026-10-27 | `de3b9f5` | Initial copy |
 | 2026-10-27 | `18c8451` | `src/ui/chart_band.cpp`: the column cap follows `PUCK_LCD_WIDTH`, so the panel's charts can run the full 1024 px. Made upstream for this repo |
+| 2026-10-27 | `f414186` | `src/ui/chart_band.cpp`: an optional anti-aliased chart outline, chosen by `PUCK_CHART_SMOOTH_EDGE` in the board profile; on here, off on both Puck boards. Made upstream for this repo |
