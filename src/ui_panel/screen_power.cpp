@@ -1,6 +1,6 @@
-// Screen 1, landscape (600x450): live power flow for the 2.41" board.
+// Screen 1: live power flow, spread across the panel's 1024x600.
 //
-// Same topology, data binding and animated flow dots as src/ui/screen_power.cpp,
+// Started as the 2.41" board's 600x450 layout. Same topology, data binding and animated flow dots as src/ui/screen_power.cpp,
 // re-laid for a wide rectangle instead of a round bezel: the plant sits in the
 // middle, the three grid-connected legs (solar, grid, battery) run across the
 // top, and the two consumers (EV, home) sit in the bottom corners. State of
@@ -29,22 +29,28 @@ struct LegPos {
   lv_coord_t dx;
   lv_coord_t dy;
 };
-constexpr LegPos POS_SOLAR = {0, -151};     // top-centre apex — the array leads
-constexpr LegPos POS_GRID = {-165, -105};   // top-left
-constexpr LegPos POS_BATTERY = {165, -105};
-constexpr LegPos POS_EV = {-165, 105};
-constexpr LegPos POS_HOME = {165, 105};
+// The generators across the top and the consumers in the bottom corners, out
+// towards the edges rather than huddled round the plant: the width is the
+// panel's spare dimension, and longer legs give the flow dots room to read as
+// movement.
+constexpr LegPos POS_SOLAR = {0, -180};     // top-centre apex — the array leads
+constexpr LegPos POS_GRID = {-330, -105};   // top-left
+constexpr LegPos POS_BATTERY = {330, -105};
+constexpr LegPos POS_EV = {-330, 115};
+constexpr LegPos POS_HOME = {330, 115};
 
 constexpr lv_coord_t LEG_BOX_WIDTH = 150;
+// Name, value and detail stacked: roughly this tall. Only used to stop the dots
+// short of the text.
+constexpr lv_coord_t LEG_BOX_HEIGHT = 80;
 
 // The channel the flow dots travel down: from just outside the hub (FLOW_INNER)
-// to a fixed margin short of each leg's text, along the line from the centre to
-// the leg's position. The outer end is per-leg (leg distance minus
-// LEG_TEXT_MARGIN) rather than a fixed radius, so a far corner leg and the nearer
-// top leg leave the same small gap to their label instead of the corner cutting
-// off early with a long empty run.
+// to LEG_TEXT_GAP short of the edge of each leg's text box, along the line from
+// the centre to the leg's position. The box edge rather than a fixed distance
+// from its centre: the side legs are approached nearly side-on, where the box
+// is twice as wide as it is tall, and a fixed margin ran the dots into the text.
 constexpr lv_coord_t FLOW_INNER = 56;
-constexpr lv_coord_t LEG_TEXT_MARGIN = 50;
+constexpr lv_coord_t LEG_TEXT_GAP = 14;
 constexpr int FLOW_DOTS = 2;
 constexpr lv_coord_t FLOW_DOT_SIZE = 9;
 
@@ -134,7 +140,10 @@ void build_leg(LegId id, const char* name, uint32_t colour, LegPos pos) {
                         static_cast<float>(pos.dy) * pos.dy);
   const float ux = d > 0.0f ? pos.dx / d : 0.0f;
   const float uy = d > 0.0f ? pos.dy / d : 0.0f;
-  const float outer = d - static_cast<float>(LEG_TEXT_MARGIN);
+  // How far back from the box's centre the line crosses its edge.
+  const float to_edge_x = fabsf(ux) > 0.001f ? (LEG_BOX_WIDTH / 2.0f) / fabsf(ux) : 1e6f;
+  const float to_edge_y = fabsf(uy) > 0.001f ? (LEG_BOX_HEIGHT / 2.0f) / fabsf(uy) : 1e6f;
+  const float outer = d - fminf(to_edge_x, to_edge_y) - static_cast<float>(LEG_TEXT_GAP);
   leg.inner.x = static_cast<lv_coord_t>(CENTRE_X + lroundf(ux * FLOW_INNER));
   leg.inner.y = static_cast<lv_coord_t>(CENTRE_Y + lroundf(uy * FLOW_INNER));
   leg.outer.x = static_cast<lv_coord_t>(CENTRE_X + lroundf(ux * outer));
@@ -299,11 +308,11 @@ lv_obj_t* screen_power_create(lv_obj_t* parent) {
   // State of charge, bottom-centre (screen 1 carries no day chip there).
   s_soc_label = make_label(s_root, PUCK_FONT_LARGE, PUCK_COLOUR_BATTERY);
   lv_label_set_text(s_soc_label, "SOC --");
-  lv_obj_align(s_soc_label, LV_ALIGN_CENTER, 0, 168);
+  lv_obj_align(s_soc_label, LV_ALIGN_CENTER, 0, 196);
 
   s_device_battery = make_label(s_root, PUCK_FONT_SMALL, PUCK_COLOUR_MUTED);
   lv_label_set_text(s_device_battery, "");
-  lv_obj_align(s_device_battery, LV_ALIGN_CENTER, 0, 196);
+  lv_obj_align(s_device_battery, LV_ALIGN_CENTER, 0, 222);
   lv_obj_add_flag(s_device_battery, LV_OBJ_FLAG_HIDDEN);
 
   lv_timer_create(flow_tick, FLOW_TICK_MS, nullptr);

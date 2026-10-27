@@ -40,12 +40,10 @@ uint8_t s_rotate_mask = 0xFF;
 // the mapping: with screens switchable, position no longer implies identity.
 PuckScreen s_screen_at[MAX_SCREENS] = {};
 
-// Below everything the screens draw, but held clear of the bezel: the outermost
-// dot of a six-dot row sits at x=51, where screen 1's state-of-charge arc has
-// curved in to y=216. Any lower and the row runs into the end of the arc — which
-// is what it used to do. Screen 3's day band was raised to keep its own
-// clearance, and this moved down two pixels to leave the day indicator a gap.
-constexpr lv_coord_t DOTS_Y = 196;   // landscape: page dots near the bottom edge
+// Down by the bottom edge, below everything the screens draw: just above the
+// settings handle, and inside the battery edge bar. On the 2.41 this had to
+// dodge the round screen's arc; a rectangle has no such corner to clear.
+constexpr lv_coord_t DOTS_Y = 245;   // page dots near the bottom edge
 constexpr lv_coord_t DOT_SIZE = 7;
 constexpr lv_coord_t DOT_GAP = 10;
 
@@ -108,7 +106,7 @@ constexpr lv_coord_t TOAST_Y = -195; // landscape: toast near the top edge
 // The day indicator sits just above the page dots, because it is the same kind of
 // thing they are: persistent state. Sharing the top with the toast meant a
 // message blanked the very date it was answering about.
-constexpr lv_coord_t CHIP_Y = 168;   // landscape: day chip just above the dots
+constexpr lv_coord_t CHIP_Y = 218;   // day chip just above the dots
 constexpr uint32_t TOAST_MS = 1600;
 
 // The address the overlay's QR points at, kept so the code is re-encoded when
