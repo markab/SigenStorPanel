@@ -396,7 +396,7 @@ void show_current_fixture() {
     ui_update_day(snapshot);
   }
 
-  const std::string title = "SigenStorPuck sim - " + name;
+  const std::string title = "SigenStorPanel sim - " + name;
   sim_backend_set_title(title.c_str());
   printf("[sim] %s (%zu bytes)\n", name.c_str(), json.size());
 }
@@ -451,7 +451,7 @@ void build_views() {
 
   // A stand-in for what net_hostname()/net_ip() return on the device, so the
   // settings screen and its QR code render here rather than only on hardware.
-  ui_set_address("sigenstorpuck.local", "192.168.1.100");
+  ui_set_address("sigenstorpanel.local", "192.168.1.100");
 
   s_debug_root = lv_obj_create(screen);
   lv_obj_remove_style_all(s_debug_root);
@@ -482,12 +482,12 @@ void cycle_overlay() {
   switch (which) {
     case 1:
       ui_set_overlay("Not configured",
-                     "http://sigenstorpuck.local/\n"
+                     "http://sigenstorpanel.local/\n"
                      "http://192.168.1.100/",
                      "Scan, or open this and paste the enrolment URL", true);
       break;
     case 2:
-      ui_set_overlay("WiFi setup", "SigenStorPuck-A1B2C3",
+      ui_set_overlay("WiFi setup", "SigenStorPanel-A1B2C3",
                      "Join this WiFi network from your phone");
       break;
     default:

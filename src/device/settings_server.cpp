@@ -198,10 +198,10 @@ String page(const String& message, bool message_is_error) {
   if (update.state == UpdateState::Checking || update.state == UpdateState::Downloading) {
     html += "<meta http-equiv=refresh content=3>";
   }
-  html += "<title>SigenStorPuck</title><style>";
+  html += "<title>SigenStorPanel</title><style>";
   html += PAGE_STYLE;
   html += "</style></head><body>";
-  html += "<h1>SigenStorPuck</h1>";
+  html += "<h1>SigenStorPanel</h1>";
   html += "<p class=hint>firmware " PUCK_FW_VERSION " &middot; ";
   html += escape_html(net_ip());
   html += "</p>";
@@ -251,7 +251,7 @@ String page(const String& message, bool message_is_error) {
   html += "<label for=host>Device name</label>";
   html += "<input id=host name=host maxlength=32 value='";
   html += escape_html(settings.hostname);
-  html += "' placeholder='sigenstorpuck'>";
+  html += "' placeholder='sigenstorpanel'>";
   html += "<p class=hint>Reachable at <code>";
   html += escape_html(settings.hostname);
   html += ".local</code> and at <code>";

@@ -9,7 +9,7 @@ namespace {
 
 // Named for this project, like everything else (see the provenance rule in
 // CLAUDE.md).
-constexpr const char* NAMESPACE = "sigenstorpuck";
+constexpr const char* NAMESPACE = "sigenstorpanel";
 
 constexpr const char* KEY_BASE_URL = "base_url";
 constexpr const char* KEY_TOKEN = "token";

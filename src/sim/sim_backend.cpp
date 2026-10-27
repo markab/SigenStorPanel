@@ -84,7 +84,7 @@ bool sim_backend_begin() {
 
   // Deliberately not SDL_WINDOW_ALLOW_HIGHDPI: one window pixel must be one
   // panel pixel, or the sim flatters a design that will not fit on the glass.
-  s_window = SDL_CreateWindow("SigenStorPuck", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+  s_window = SDL_CreateWindow("SigenStorPanel", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                               PUCK_LCD_WIDTH, PUCK_LCD_HEIGHT, 0);
   if (s_window == nullptr) {
     fprintf(stderr, "[sim] SDL_CreateWindow failed: %s\n", SDL_GetError());

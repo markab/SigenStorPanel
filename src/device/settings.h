@@ -52,7 +52,7 @@ struct Settings {
   // answering on sigenstorpuck.local and every bookmark and doc reference still
   // works. A second Puck on the same LAN is the reason this is editable at all —
   // two devices claiming one mDNS name is a coin toss over which you reach.
-  String hostname = "sigenstorpuck";
+  String hostname = "sigenstorpanel";
 
   // "https://host" or "http://192.168.1.10:8000", no trailing slash.
   String base_url;

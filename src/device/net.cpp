@@ -13,7 +13,7 @@ namespace {
 
 // Named for this project. Nothing here is carried over from any reference
 // implementation (see the provenance rule in CLAUDE.md).
-constexpr const char* SETUP_AP_PREFIX = "SigenStorPuck";
+constexpr const char* SETUP_AP_PREFIX = "SigenStorPanel";
 
 constexpr const char* NTP_PRIMARY = "pool.ntp.org";
 constexpr const char* NTP_SECONDARY = "time.nist.gov";
@@ -23,7 +23,7 @@ NetState s_state = NetState::Starting;
 bool s_time_requested = false;
 bool s_mdns_up = false;
 
-// "SigenStorPuck-A1B2C3". Held as a member rather than built on demand because
+// "SigenStorPanel-A1B2C3". Held as a member rather than built on demand because
 // WiFiManager keeps the pointer it is given.
 String s_setup_ap;
 // The name actually registered this boot. Kept separate from the setting so the
@@ -121,7 +121,7 @@ void net_begin() {
   s_hostname_param.setValue(s_active_hostname.c_str(), SETTINGS_MAX_HOSTNAME);
   s_manager.addParameter(&s_hostname_param);
   s_manager.setSaveParamsCallback(save_params);
-  s_manager.setTitle("SigenStorPuck");
+  s_manager.setTitle("SigenStorPanel");
   s_manager.setConfigPortalTimeout(0);
 
   // Logged on every boot, not only when the portal comes up. Otherwise the only

@@ -1,7 +1,8 @@
-// SigenStorPuck — device entry point.
+// SigenStorPanel — device entry point.
 //
-// Brings up the hardware, joins WiFi, serves the settings page, and polls
-// /api/summary on a task pinned to core 0 while this loop runs LVGL on core 1.
+// Adapted from SigenStorPuck (see UPSTREAM.md). Brings up the hardware, joins
+// WiFi, serves the settings page, and polls /api/summary on a task pinned to
+// core 0 while this loop runs LVGL on core 1.
 // Screens never learn where a reading came from: everything arrives through one
 // ui_update() call (PLAN.md §B3).
 
@@ -292,7 +293,7 @@ void refresh_device_battery() {
 }
 
 void log_boot_banner() {
-  Serial.printf("\nSigenStorPuck %s\n", PUCK_FW_VERSION);
+  Serial.printf("\nSigenStorPanel %s\n", PUCK_FW_VERSION);
   Serial.printf("[chip] %s rev %d, %d MHz, flash %u MB, PSRAM %u MB, free heap %u B\n",
                 ESP.getChipModel(), ESP.getChipRevision(), getCpuFrequencyMhz(),
                 static_cast<unsigned>(ESP.getFlashChipSize() / (1024 * 1024)),
@@ -303,18 +304,14 @@ void log_boot_banner() {
 }  // namespace
 
 void setup() {
-  // Before anything else, the 1.5 s wait for USB-CDC below included: on the
-  // 2.41's battery latch, the board is only powered until this runs while PWR is
-  // held. A no-op on boards without one.
-  power_hold();
-
   Serial.begin(PUCK_SERIAL_BAUD);
-  // USB-CDC takes a moment to enumerate; without this the banner is lost.
-  delay(1500);
+  // UART0 through the CH341, so there is no USB-CDC enumeration to wait for.
+  // A short pause still lets a monitor that reset the board on open catch the
+  // banner.
+  delay(200);
   log_boot_banner();
 
-  // main() owns the shared I2C bus: touch now, the AXP2101 PMIC and PCF85063 RTC
-  // later.
+  // main() owns the shared I2C bus. Only the GT911 is on it today.
   Wire.begin(PUCK_I2C_SDA, PUCK_I2C_SCL, PUCK_I2C_HZ);
   touch_scan_i2c();
 
@@ -359,8 +356,8 @@ void setup() {
   display_set_brightness(settings_get().brightness);
   // A named boot screen rather than a bare word: on a device that takes a couple
   // of seconds to find WiFi, this is the only proof it is alive.
-  set_overlay("SigenStorPuck", nullptr, PUCK_FW_VERSION);
-  ui_set_overlay("SigenStorPuck", nullptr, PUCK_FW_VERSION);
+  set_overlay("SigenStorPanel", nullptr, PUCK_FW_VERSION);
+  ui_set_overlay("SigenStorPanel", nullptr, PUCK_FW_VERSION);
   // Draw the first frame before WiFi so the screen is alive while the radio comes
   // up, rather than black for a couple of seconds.
   lv_timer_handler();
@@ -370,7 +367,8 @@ void setup() {
   // visible reason.
   ui_set_rotate_interval(settings_get().rotate_s);
   ui_set_rotate_enabled(settings_get().rotate_enabled);
-  ui_set_sweep_interval(settings_get().sweep_min);
+  // No sweep band: IPS does not burn in (CLAUDE.md). The setting is still
+  // stored, but nothing here acts on it.
   ui_set_day_return(PUCK_DAY_RETURN_S);
 
   net_begin();
