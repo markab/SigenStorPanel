@@ -1823,9 +1823,15 @@ void settings_sheet_set_screens(const SheetScreens& screens) {
 void settings_sheet_set_wifi(const SheetWifi& wifi) {
   // Leave an armed Forget alone: the list it points into is about to be rebuilt
   // under it only if the networks themselves changed.
-  const bool same_list =
-      wifi.saved_count == s_wifi.saved_count &&
-      memcmp(wifi.saved, s_wifi.saved, sizeof(SheetNetwork) * wifi.saved_count) == 0;
+  //
+  // By name, not by the whole entry. This is pushed every second with fresh
+  // signal strengths, and comparing those disarmed every confirmation on the
+  // sheet within a second, Restart's included, so a second tap armed it again
+  // instead of confirming.
+  bool same_list = wifi.saved_count == s_wifi.saved_count;
+  for (int i = 0; same_list && i < wifi.saved_count; ++i) {
+    same_list = strcmp(wifi.saved[i].ssid, s_wifi.saved[i].ssid) == 0;
+  }
   if (!same_list) {
     disarm();
   }
