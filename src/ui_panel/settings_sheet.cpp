@@ -4,7 +4,6 @@
 #include <string.h>
 
 #include "board_config.h"
-#include "qr_block.h"
 #include "theme.h"
 #include "settings_sheet_internal.h"
 #include "ui.h"
@@ -29,6 +28,7 @@ enum RestartReason : uint8_t {
   RESTART_SCREENS = 1u << 0,
   RESTART_SOURCE = 1u << 1,
   RESTART_FLIP = 1u << 2,
+  RESTART_NAME = 1u << 3,
 };
 
 // ------------------------------------------------------------------- state ---
@@ -117,6 +117,7 @@ lv_obj_t* s_modbus_field = nullptr;
 lv_obj_t* s_modbus_value = nullptr;
 lv_obj_t* s_ha_host = nullptr;
 lv_obj_t* s_ha_token = nullptr;
+lv_obj_t* s_ha_sensors = nullptr;
 lv_obj_t* s_modbus_devices = nullptr;
 lv_obj_t* s_poll_slider = nullptr;
 lv_obj_t* s_poll_value = nullptr;
@@ -146,9 +147,7 @@ lv_obj_t* s_update_text = nullptr;
 lv_obj_t* s_check_button = nullptr;
 lv_obj_t* s_install_button = nullptr;
 lv_obj_t* s_restart_button = nullptr;
-lv_obj_t* s_qr = nullptr;
 lv_obj_t* s_web_address = nullptr;
-char s_qr_url[64] = {};
 
 // Keypad, for the Modbus plant address.
 
@@ -182,6 +181,7 @@ enum class EntryKind : uint8_t {
   KioskCode,
   HaAddress,
   HaToken,
+  DeviceName,
 };
 EntryKind s_entry_kind = EntryKind::WifiPassword;
 char s_entry_error[64] = {};
@@ -215,6 +215,9 @@ void refresh_restart_bar() {
   if (s_have_boot_display && s_display.flipped != s_boot_flipped) {
     reasons |= RESTART_FLIP;
   }
+  if (s_device.host_pending) {
+    reasons |= RESTART_NAME;
+  }
   if (reasons == 0) {
     lv_obj_add_flag(s_restart_bar, LV_OBJ_FLAG_HIDDEN);
     return;
@@ -234,6 +237,11 @@ void refresh_restart_bar() {
   if (reasons & RESTART_FLIP) {
     strncat(line, separator, sizeof(line) - strlen(line) - 1);
     strncat(line, "upside down", sizeof(line) - strlen(line) - 1);
+    separator = ", ";
+  }
+  if (reasons & RESTART_NAME) {
+    strncat(line, separator, sizeof(line) - strlen(line) - 1);
+    strncat(line, "device name", sizeof(line) - strlen(line) - 1);
   }
   lv_label_set_text(s_restart_text, line);
   lv_obj_clear_flag(s_restart_bar, LV_OBJ_FLAG_HIDDEN);
@@ -409,6 +417,8 @@ void refresh_data() {
   lv_obj_set_style_text_color(s_ha_token,
                               lv_color_hex(s_data.ha_set ? PUCK_COLOUR_BATTERY : PUCK_COLOUR_WARN),
                               LV_PART_MAIN);
+  char sensors[32];
+  lv_label_set_text(s_ha_sensors, ha_sensors_summary(sensors, sizeof(sensors)));
 
   const int step = nearest_step(POLL_STEPS, s_data.poll_s);
   if (!lv_obj_has_state(s_poll_slider, LV_STATE_PRESSED)) {
@@ -530,17 +540,6 @@ void refresh_device() {
   set_disabled(s_check_button, s_device.update == SheetUpdate::Checking ||
                                    s_device.update == SheetUpdate::Installing);
 
-  char url[64];
-  if (s_device.ip[0] != '\0') {
-    snprintf(url, sizeof(url), "http://%s/", s_device.ip);
-  } else {
-    url[0] = '\0';
-  }
-  if (strcmp(url, s_qr_url) != 0) {
-    snprintf(s_qr_url, sizeof(s_qr_url), "%s", url);
-    puck_qr_block_set_url(s_qr, s_qr_url[0] != '\0' ? s_qr_url : "http://0.0.0.0/");
-  }
-  set_hidden(s_qr, s_qr_url[0] == '\0');
   if (s_device.ip[0] != '\0') {
     snprintf(value, sizeof(value), "%s.local\n%s", s_device.host, s_device.ip);
   } else {
@@ -805,7 +804,7 @@ void slide(int32_t from, int32_t to, lv_anim_ready_cb_t done) {
 }
 
 bool modal_open() {
-  return keypad_is_open() || plant_modal_open() ||
+  return keypad_is_open() || plant_modal_open() || ha_modal_open() ||
          !lv_obj_has_flag(s_picker, LV_OBJ_FLAG_HIDDEN) ||
          !lv_obj_has_flag(s_join_panel, LV_OBJ_FLAG_HIDDEN);
 }
@@ -1166,8 +1165,7 @@ void build_data(lv_obj_t* tile) {
       LV_EVENT_CLICKED, nullptr);
   s_server_forget = button(link_buttons, "Forget server", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
   lv_obj_add_event_cb(s_server_forget, on_forget_server, LV_EVENT_CLICKED, nullptr);
-  hint(server, "From SigenStor Display's Admin page: the server and code, or the whole link. "
-               "The link can also be pasted on the web settings page (Device page).");
+  hint(server, "From SigenStor Display's Admin page: the server and code, or the whole link.");
 
   lv_obj_t* modbus = detail_box();
   s_source_detail[1] = modbus;
@@ -1185,7 +1183,11 @@ void build_data(lv_obj_t* tile) {
   lv_obj_t* devices_end = plain(devices_line);
   lv_obj_set_size(devices_end, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(devices_end, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(devices_end, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  // START, not END: a content-sized flex container aligned to its end places a
+  // child that grows (this label, once its text is set) off its left edge and
+  // leaves it out of its own width, so the label was clipped away. The row
+  // around it already pushes the pair to the right.
+  lv_obj_set_flex_align(devices_end, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_column(devices_end, 14, LV_PART_MAIN);
   s_modbus_devices = text(devices_end, FONT_TEXT, PUCK_COLOUR_TEXT, "");
   lv_obj_t* edit_devices = button(devices_end, "Edit", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
@@ -1208,7 +1210,18 @@ void build_data(lv_obj_t* tile) {
   lv_obj_add_event_cb(
       set_token, [](lv_event_t*) { settings_sheet_show_entry(SheetEntry::HaToken); },
       LV_EVENT_CLICKED, nullptr);
-  hint(ha, "Which entities to read is set on the web settings page (Device page).");
+  lv_obj_t* sensors_line = row(ha);
+  text(sensors_line, FONT_TEXT, PUCK_COLOUR_MUTED, "Sensors");
+  lv_obj_t* sensors_end = plain(sensors_line);
+  lv_obj_set_size(sensors_end, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(sensors_end, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(sensors_end, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(sensors_end, 14, LV_PART_MAIN);
+  s_ha_sensors = text(sensors_end, FONT_TEXT, PUCK_COLOUR_TEXT, "");
+  lv_obj_t* choose = button(sensors_end, "Choose", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  lv_obj_set_style_pad_ver(choose, 8, LV_PART_MAIN);
+  lv_obj_add_event_cb(choose, [](lv_event_t*) { ha_open_sensors(); }, LV_EVENT_CLICKED, nullptr);
+  hint(ha, "Which sensor gives each figure, picked from Home Assistant's own list.");
 
   lv_obj_t* right = card(body, 360, CARD_H);
   caption(right, "READING");
@@ -1260,19 +1273,15 @@ void build_device(lv_obj_t* tile) {
   s_install_button = button(buttons, "Install", COLOUR_ACCENT, PUCK_COLOUR_TEXT);
   lv_obj_add_event_cb(s_install_button, on_install, LV_EVENT_CLICKED, nullptr);
 
-  lv_obj_t* web = card(column, 400, LV_SIZE_CONTENT);
-  lv_obj_set_flex_grow(web, 1);
-  lv_obj_set_flex_flow(web, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(web, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_set_style_pad_column(web, 16, LV_PART_MAIN);
-  s_qr = puck_qr_block_create(web, 100);
-  lv_obj_t* words = plain(web);
-  lv_obj_set_size(words, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(words, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(words, 8, LV_PART_MAIN);
-  caption(words, "WEB SETTINGS");
-  s_web_address = text(words, FONT_TEXT, COLOUR_ACCENT, "");
+  lv_obj_t* network = card(column, 400, LV_SIZE_CONTENT);
+  lv_obj_set_flex_grow(network, 1);
+  caption(network, "ON THE NETWORK");
+  s_web_address = text(network, FONT_TEXT, COLOUR_ACCENT, "");
   lv_obj_set_style_text_line_space(s_web_address, 6, LV_PART_MAIN);
+  lv_obj_t* rename = button(network, "Change name", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  lv_obj_add_event_cb(
+      rename, [](lv_event_t*) { settings_sheet_show_entry(SheetEntry::DeviceName); },
+      LV_EVENT_CLICKED, nullptr);
 }
 
 void build_header(lv_obj_t* parent) {
@@ -1382,7 +1391,8 @@ void apply_keyboard_mode() {
                      : s_keyboard_mode == KeyboardMode::Symbols ? KEYS_SYMBOLS
                      : url ? KEYS_LOWER_URL
                            : KEYS_LOWER;
-  if (s_entry_kind == EntryKind::KioskCode) {
+  // A code and a network name are both lower case, digits and dashes.
+  if (s_entry_kind == EntryKind::KioskCode || s_entry_kind == EntryKind::DeviceName) {
     map = KEYS_CODE;
   }
   lv_btnmatrix_set_map(s_keyboard, map);
@@ -1430,6 +1440,7 @@ void refresh_entry() {
   static const char* const TITLES[] = {
       "",           "Enrolment link",         "Server address",
       "Kiosk code", "Home Assistant address", "Home Assistant token",
+      "Device name",
   };
   static const char* const HINTS[] = {
       "",
@@ -1438,6 +1449,7 @@ void refresh_entry() {
       "The code from SigenStor Display's Admin page, with or without its dashes",
       "For example http://homeassistant.local:8123",
       "A long-lived access token, from your profile page in Home Assistant",
+      "Letters, digits and dashes. The panel answers as this name with .local",
   };
   const int kind = static_cast<int>(s_entry_kind);
   lv_label_set_text(s_join_title, TITLES[kind]);
@@ -1530,7 +1542,8 @@ void save_entry() {
       : s_entry_kind == EntryKind::ServerAddress ? actions.set_server_address
       : s_entry_kind == EntryKind::KioskCode     ? actions.set_kiosk_code
       : s_entry_kind == EntryKind::HaAddress     ? actions.set_ha_address
-                                                 : actions.set_ha_token;
+      : s_entry_kind == EntryKind::HaToken       ? actions.set_ha_token
+                                                 : actions.set_device_name;
   s_entry_error[0] = '\0';
   if (save != nullptr && !save(s_password, s_entry_error, sizeof(s_entry_error))) {
     if (s_entry_error[0] == '\0') {
@@ -1825,6 +1838,7 @@ void settings_sheet_create(lv_obj_t* parent, const SheetActions& actions) {
 
   build_restart_bar(s_root);
   plant_build_modals(s_root);
+  ha_build_modals(s_root);
   keypad_build(s_root);
   build_picker(s_root);
   build_join_panel(s_root);
@@ -1904,6 +1918,7 @@ void settings_sheet_set_device(const SheetDevice& device) {
   // The dot on the Device tab and the install screen matter with the sheet shut.
   set_hidden(s_device_dot, s_device.update != SheetUpdate::Available);
   refresh_updating();
+  refresh_restart_bar();
 }
 
 void settings_sheet_open(SheetPage page, bool animate) {
@@ -1930,6 +1945,7 @@ void settings_sheet_close(bool animate) {
   disarm();
   keypad_close();
   plant_close_modals();
+  ha_close_modals();
   lv_obj_add_flag(s_picker, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(s_join_panel, LV_OBJ_FLAG_HIDDEN);
   s_join_requested = false;
@@ -2047,7 +2063,8 @@ void settings_sheet_show_entry(SheetEntry entry) {
                  : entry == SheetEntry::ServerAddress ? EntryKind::ServerAddress
                  : entry == SheetEntry::KioskCode     ? EntryKind::KioskCode
                  : entry == SheetEntry::HaAddress     ? EntryKind::HaAddress
-                                                      : EntryKind::HaToken;
+                 : entry == SheetEntry::HaToken       ? EntryKind::HaToken
+                                                      : EntryKind::DeviceName;
   s_entry_error[0] = '\0';
   memset(s_password, 0, sizeof(s_password));
   // An address starts with what it usually does: http:// for Home Assistant on
@@ -2057,6 +2074,9 @@ void settings_sheet_show_entry(SheetEntry entry) {
     snprintf(s_password, sizeof(s_password), "http://");
   } else if (s_entry_kind == EntryKind::ServerAddress) {
     snprintf(s_password, sizeof(s_password), "https://");
+  } else if (s_entry_kind == EntryKind::DeviceName) {
+    // The current name, to edit rather than retype.
+    snprintf(s_password, sizeof(s_password), "%s", s_device.host);
   }
   // Long and typed by eye, so shown while typed. Show/Hide still works.
   s_password_visible = true;
@@ -2070,6 +2090,26 @@ void settings_sheet_show_entry(SheetEntry entry) {
 
 void settings_sheet_set_solar(const SheetSolar& solar) {
   plant_set_solar(solar);
+}
+
+void settings_sheet_set_ha_sensors(const SheetHaSensors& sensors) {
+  ha_set_sensors(sensors);
+  // The Data page's "12 of 21 chosen".
+  if (s_open && s_page == SheetPage::Data) {
+    refresh_data();
+  }
+}
+
+void settings_sheet_set_ha_list(const SheetHaList& list) {
+  ha_set_list(list);
+}
+
+void settings_sheet_show_ha_sensors() {
+  ha_open_sensors();
+}
+
+void settings_sheet_show_ha_picker(int role) {
+  ha_open_picker(role);
 }
 
 void settings_sheet_show_devices() {

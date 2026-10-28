@@ -8,11 +8,13 @@
 #include "data_source.h"
 #include "display.h"
 #include "enrol_url.h"
+#include "ha_catalog_fetch.h"
 #include "kiosk_code.h"
 #include "modbus_api.h"
 #include "net.h"
 #include "poller.h"
 #include "presence.h"
+#include "psram_alloc.h"
 #include "settings.h"
 #include "ui/ui.h"
 #include "ui_panel/settings_sheet.h"
@@ -127,6 +129,45 @@ bool save_home_assistant(const String& base_url, const String& token, SolarForec
   return settings_set_home_assistant(base_url, token, s.ha_entities, HA_ENTITY_COUNT, source);
 }
 
+// Which sensor fills each Home Assistant role, for the sheet's list.
+void push_ha_sensors() {
+  SheetHaSensors sensors;
+  const Settings& s = settings_get();
+  for (size_t i = 0; i < HA_ENTITY_COUNT; ++i) {
+    snprintf(sensors.entity[i], HA_ENTITY_ID_MAX, "%s", s.ha_entities[i].c_str());
+  }
+  settings_sheet_set_ha_sensors(sensors);
+}
+
+// The picker's copy of Home Assistant's sensor list, refreshed when a fetch
+// finishes. A copy rather than the fetch's own, because the sheet keeps a pointer
+// into it and the next fetch replaces that one.
+void push_ha_list() {
+  static HaCandidate* items = nullptr;
+  static uint32_t seen_generation = 0;
+  static HaCatalogState seen_state = HaCatalogState::Idle;
+  char message[48];
+  const HaCatalogState state = ha_catalog_state(message, sizeof(message));
+  const uint32_t generation = ha_catalog_generation();
+  if (state == seen_state && generation == seen_generation) {
+    return;
+  }
+  seen_state = state;
+  seen_generation = generation;
+  if (items == nullptr) {
+    items = static_cast<HaCandidate*>(psram_alloc(HA_CATALOG_MAX * sizeof(HaCandidate)));
+  }
+  SheetHaList list;
+  list.state = state == HaCatalogState::Loading ? SheetHaListState::Loading
+               : state == HaCatalogState::Ready ? SheetHaListState::Ready
+               : state == HaCatalogState::Failed ? SheetHaListState::Failed
+                                                 : SheetHaListState::Idle;
+  snprintf(list.message, sizeof(list.message), "%s", message);
+  list.items = items;
+  list.count = items != nullptr ? ha_catalog_copy(items, HA_CATALOG_MAX) : 0;
+  settings_sheet_set_ha_list(list);
+}
+
 void push_presence() {
   const PresenceStatus room = presence_status();
   SheetPresence presence;
@@ -223,6 +264,8 @@ void push_device() {
   SheetDevice device;
   snprintf(device.firmware, sizeof(device.firmware), "%s", PUCK_FW_VERSION);
   snprintf(device.host, sizeof(device.host), "%s", net_hostname().c_str());
+  // Registered once, at boot, so a saved new name waits for a restart.
+  device.host_pending = settings_get().hostname != net_hostname();
   snprintf(device.ip, sizeof(device.ip), "%s", net_ip().c_str());
   device.uptime_s = millis() / 1000;
   device.internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
@@ -423,6 +466,40 @@ SheetActions actions() {
   // Both only ask: the poll task does the HTTPS (updater_service()).
   a.check_update = []() { updater_request_check(true); };
   a.install_update = []() { updater_request_apply(); };
+  // The list request is the fetch task's: this only asks.
+  a.load_ha_list = []() { ha_catalog_request(); };
+  a.set_ha_sensor = [](int role, const char* entity_id) {
+    if (role < 0 || role >= static_cast<int>(HA_ENTITY_COUNT)) {
+      return;
+    }
+    const Settings& s = settings_get();
+    String entities[HA_ENTITY_COUNT];
+    for (size_t i = 0; i < HA_ENTITY_COUNT; ++i) {
+      entities[i] = s.ha_entities[i];
+    }
+    entities[role] = entity_id;
+    if (settings_set_home_assistant(s.ha_base_url, String(), entities, HA_ENTITY_COUNT,
+                                    s.ha_solar_forecast_source)) {
+      Serial.printf("[settings] home assistant %s: %s\n", HA_ENTITIES[role].label,
+                    entity_id[0] != '\0' ? entity_id : "(not read)");
+      poller_wake();
+    }
+    push_ha_sensors();
+  };
+  a.set_device_name = [](const char* name, char* error, size_t size) {
+    const String clean = settings_clean_hostname(String(name));
+    if (clean.isEmpty()) {
+      snprintf(error, size, "That leaves nothing to use as a name");
+      return false;
+    }
+    if (!settings_set_hostname(clean)) {
+      snprintf(error, size, "That was not saved");
+      return false;
+    }
+    Serial.printf("[settings] device name %s, from the next boot\n", clean.c_str());
+    push_device();
+    return true;
+  };
   a.restart = []() {
     Serial.println("[settings] restart from the settings sheet");
     ui_toast("RESTARTING");
@@ -440,6 +517,7 @@ void settings_bridge_begin() {
   push_screens();
   push_data();
   push_solar();
+  push_ha_sensors();
   push_wifi();
   push_device();
 }
@@ -460,6 +538,9 @@ void settings_bridge_loop() {
   } else {
     picker_offered = false;
   }
+
+  // The sensor list arriving: someone opened the picker and is waiting for it.
+  push_ha_list();
 
   // Install progress moves quickly enough to be worth more than once a second.
   static int8_t last_percent = -1;

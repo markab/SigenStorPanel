@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "ha_catalog.h"
 #include "kiosk_code.h"
 #include "presence_parse.h"
 
@@ -118,12 +119,47 @@ void test_kiosk_code() {
 
 }  // namespace
 
+// The rendered template's lines, and which roles each sensor can fill.
+void test_ha_catalog() {
+  const char text[] =
+      "sensor.sigen_plant_pv_power\tkW\tSigen Plant PV Power\t3.42\n"
+      "sensor.sigen_plant_battery_state_of_charge\t%\tBattery SOC\t78\r\n"
+      "sensor.daily_import\tkWh\tDaily import\t6.8\n"
+      "sensor.cell_temp\t\xC2\xB0" "C\tCell temperature\t24.5\n"
+      "binary_sensor.off_grid\t\tOff grid\toff\n"
+      "not an entity\tkW\tBroken\t1\n"
+      "sensor.only_three\tkW\tfields\n"
+      "sensor.load\tW\tLoad\t1200";  // the last line need not end in a newline
+  HaCandidate list[8];
+  const size_t count = ha_catalog_parse(text, strlen(text), list, 8);
+  check(count == 6, "catalog: six good lines out of eight");
+  check(strcmp(list[0].entity_id, "sensor.sigen_plant_pv_power") == 0 &&
+            strcmp(list[0].unit, "kW") == 0 && strcmp(list[0].state, "3.42") == 0,
+        "catalog: fields split on tabs");
+  check(strcmp(list[1].state, "78") == 0, "catalog: a CR before the LF is dropped");
+  check(strcmp(list[5].entity_id, "sensor.load") == 0 && strcmp(list[5].state, "1200") == 0,
+        "catalog: a last line without a newline is kept");
+  check(ha_catalog_suits(HaValueKind::Power, list[0]) &&
+            ha_catalog_suits(HaValueKind::Power, list[5]) &&
+            !ha_catalog_suits(HaValueKind::Energy, list[0]),
+        "catalog: W and kW suit power, not energy");
+  check(ha_catalog_suits(HaValueKind::Percent, list[1]) &&
+            ha_catalog_suits(HaValueKind::Energy, list[2]) &&
+            ha_catalog_suits(HaValueKind::Temperature, list[3]),
+        "catalog: percent, energy and temperature by unit");
+  check(ha_catalog_suits(HaValueKind::Boolean, list[4]) &&
+            !ha_catalog_suits(HaValueKind::Boolean, list[0]),
+        "catalog: only a unitless sensor suits an on/off role");
+  check(ha_catalog_parse(text, strlen(text), list, 2) == 2, "catalog: stops at the limit");
+}
+
 int run_panel_selftest() {
   s_checks = 0;
   s_failures = 0;
   test_presence_text();
   test_presence_frames();
   test_kiosk_code();
+  test_ha_catalog();
   printf("\n%d panel checks, %d failed\n", s_checks, s_failures);
   return s_failures == 0 ? 0 : 1;
 }

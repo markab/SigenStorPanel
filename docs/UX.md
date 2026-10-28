@@ -43,8 +43,15 @@ as one line across the top of whichever screen is up, with the screens still vis
 beneath. Tapping it opens the settings page that fixes it: Data, or WiFi for the WiFi
 ones (`src/ui_panel/banner.h`). Grey while something is in progress, amber when
 something needs setting up, red when it is set up but refused or unreachable. The only
-full-screen message left is the boot splash. Nothing points at the web page: the aim
-is to remove the device's web interface altogether.
+full-screen message left is the boot splash. Nothing points at the web page.
+
+**Update 2026-10-28, later: there is no web interface on the device.** The last things
+only the web page could do moved onto the sheet: which Home Assistant sensor gives each
+figure is picked from Home Assistant's own list (Data, Home Assistant, Sensors: Choose),
+filtered to the sensors in a unit each figure can use and showing their live values;
+the device name is on the Device page. `settings_server.cpp`, its QR codes and the
+Device page's web card are gone. The sections below that mention the web page are the
+earlier plan, kept for the reasoning.
 
 **Update 2026-10-27, later: credentials are typed on the panel too.** The Data page
 has "Enter link" (server), "Set address" and "Set token" (Home Assistant), on a

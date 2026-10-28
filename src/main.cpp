@@ -1,8 +1,9 @@
 // SigenStorPanel — device entry point.
 //
 // Adapted from SigenStorPuck (see UPSTREAM.md). Brings up the hardware, joins
-// WiFi, serves the settings page, and polls /api/summary on a task pinned to
-// core 0 while this loop runs LVGL on core 1.
+// WiFi, and polls the data source on a task pinned to core 0 while this loop runs
+// LVGL on core 1. Everything is set on the panel's own settings sheet: there is
+// no web interface on the device.
 // Screens never learn where a reading came from: everything arrives through one
 // ui_update() call (PLAN.md §B3).
 
@@ -20,7 +21,6 @@
 #include "device/presence.h"
 #include "device/settings.h"
 #include "device/settings_bridge.h"
-#include "device/settings_server.h"
 #include "device/updater.h"
 #include "display.h"
 #include "screen_window.h"
@@ -180,8 +180,7 @@ void apply_idle_dim() {
 // timezone — so the offset has to come from the reading, which is the same one
 // the day charts are anchored to. Until one arrives the window is read against
 // UTC, which in Britain is right for half the year and an hour out for the other
-// half; the settings page prints the device's current local time next to the
-// fields so that is visible rather than mysterious.
+// half.
 void apply_screen_schedule() {
   const Settings& settings = settings_get();
   const time_t now = time(nullptr);
@@ -408,11 +407,6 @@ void loop() {
 
   net_loop();
 
-  // Started only once connected: there is nothing to serve it on until then.
-  if (net_state() == NetState::Connected && !settings_server_running()) {
-    settings_server_begin();
-  }
-  settings_server_loop();
   settings_bridge_loop();
 
   static uint32_t last_refresh = 0;

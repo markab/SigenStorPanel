@@ -14,6 +14,7 @@
 #include <stdint.h>
 
 #include "data_source.h"
+#include "ha_catalog.h"
 #include "solar_source.h"
 
 static constexpr int SHEET_MAX_NETWORKS = 5;
@@ -154,6 +155,29 @@ enum class SheetEntry : uint8_t {
   KioskCode,
   HaAddress,
   HaToken,
+  DeviceName,
+};
+
+// Which Home Assistant sensor supplies each role, indexed like HA_ENTITIES in
+// home_assistant.h. Empty: that role is not read.
+struct SheetHaSensors {
+  char entity[HA_ENTITY_COUNT][HA_ENTITY_ID_MAX] = {};
+};
+
+enum class SheetHaListState : uint8_t {
+  Idle,
+  Loading,
+  Ready,
+  Failed,
+};
+
+// The sensors Home Assistant offers, for the picker. `items` belongs to the
+// caller and must stay valid until the next settings_sheet_set_ha_list().
+struct SheetHaList {
+  SheetHaListState state = SheetHaListState::Idle;
+  char message[48] = {};  // why it failed, or that it listed nothing
+  const HaCandidate* items = nullptr;
+  size_t count = 0;
 };
 
 enum class SheetUpdate : uint8_t {
@@ -168,6 +192,8 @@ enum class SheetUpdate : uint8_t {
 struct SheetDevice {
   char firmware[16] = {};
   char host[40] = {};  // mDNS name, without ".local"
+  // A new name is saved but not yet in use: it is registered once, at boot.
+  bool host_pending = false;
   char ip[16] = {};
   uint32_t uptime_s = 0;
   uint32_t internal_free = 0;
@@ -210,6 +236,14 @@ struct SheetActions {
   // The link's two halves, as the Admin page also shows them. Each keeps the other.
   bool (*set_server_address)(const char* url, char* error, size_t error_size) = nullptr;
   bool (*set_kiosk_code)(const char* code, char* error, size_t error_size) = nullptr;
+  // Asks for Home Assistant's sensor list; it arrives through
+  // settings_sheet_set_ha_list(). Must not block.
+  void (*load_ha_list)() = nullptr;
+  // One role's sensor, by HA_ENTITIES index; an empty entity_id stops reading it.
+  void (*set_ha_sensor)(int role, const char* entity_id) = nullptr;
+  // The panel's name on the network. False, with a reason, if nothing usable is
+  // left once it is cleaned up for DNS.
+  bool (*set_device_name)(const char* name, char* error, size_t error_size) = nullptr;
   bool (*set_ha_address)(const char* url, char* error, size_t error_size) = nullptr;
   bool (*set_ha_token)(const char* token, char* error, size_t error_size) = nullptr;
   void (*set_modbus_devices)(uint8_t plant_address, const SheetModbusDevice* devices,
@@ -237,6 +271,8 @@ void settings_sheet_set_data(const SheetData& data);
 void settings_sheet_set_device(const SheetDevice& device);
 void settings_sheet_set_scan(const SheetScan& scan);
 void settings_sheet_set_solar(const SheetSolar& solar);
+void settings_sheet_set_ha_sensors(const SheetHaSensors& sensors);
+void settings_sheet_set_ha_list(const SheetHaList& list);
 void settings_sheet_set_join(const SheetJoinStatus& join);
 
 void settings_sheet_open(SheetPage page, bool animate);
@@ -260,6 +296,9 @@ void settings_sheet_show_password(const char* ssid, bool secure);
 void settings_sheet_show_entry(SheetEntry entry);
 // The Modbus device editor, and one solar array's editor. For the sim.
 void settings_sheet_show_devices();
+// The Home Assistant sensor list, and the picker for one role. For the sim.
+void settings_sheet_show_ha_sensors();
+void settings_sheet_show_ha_picker(int role);
 void settings_sheet_show_array(int index);
 
 // Types into the password field and presses Join, as fingers would. For the sim.

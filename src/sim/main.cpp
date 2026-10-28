@@ -30,6 +30,7 @@
 #include "day_series.h"
 #include "enrol_url.h"
 #include "forecast_store.h"
+#include "ha_catalog.h"
 #include "history.h"
 #include "kiosk_code.h"
 #include "live_source.h"
@@ -640,6 +641,47 @@ void demo_network(SheetNetwork* network, const char* ssid, int8_t rssi, bool in_
   network->in_range = in_range;
 }
 
+// What a Home Assistant with the Sigen integration answers the picker's template
+// with, abridged. Parsed by the same code as on the device.
+const char DEMO_HA_CATALOG[] =
+    "sensor.sigen_plant_pv_power\tkW\tSigen Plant PV Power\t3.42\n"
+    "sensor.sigen_plant_grid_active_power\tkW\tSigen Plant Grid Active Power\t-1.10\n"
+    "sensor.sigen_plant_battery_power\tkW\tSigen Plant Battery Power\t1.20\n"
+    "sensor.sigen_plant_consumed_power\tkW\tSigen Plant Consumed Power\t1.12\n"
+    "sensor.sigen_inverter_dc_charger_output_power\tkW\tSigen Inverter DC Charger Output Power\t0.00\n"
+    "sensor.sigen_plant_plant_active_power\tkW\tSigen Plant Active Power\t2.22\n"
+    "sensor.shelly_em_kitchen_power\tW\tKitchen Power\t412\n"
+    "sensor.shelly_em_garage_power\tW\tGarage Power\t35\n"
+    "sensor.myenergi_zappi_power\tW\tZappi Power\t0\n"
+    "sensor.sigen_plant_grid_connection_status\t\tSigen Plant Grid Connection Status\tOn Grid\n"
+    "binary_sensor.sigen_plant_off_grid\t\tSigen Plant Off Grid\toff\n"
+    "sensor.sigen_plant_battery_state_of_charge\t%\tSigen Plant Battery State of Charge\t78\n"
+    "sensor.sigen_plant_battery_state_of_health\t%\tSigen Plant Battery State of Health\t99\n"
+    "sensor.phone_battery_level\t%\tPhone Battery\t64\n"
+    "sensor.sigen_plant_rated_energy_capacity\tkWh\tSigen Plant Rated Energy Capacity\t16.1\n"
+    "sensor.sigen_inverter_battery_average_cell_temperature\t\xC2\xB0" "C\tSigen Inverter Battery Average Cell Temperature\t24.5\n"
+    "sensor.living_room_temperature\t\xC2\xB0" "C\tLiving Room Temperature\t20.8\n"
+    "sensor.sigen_plant_pv_daily_generation\tkWh\tSigen Plant PV Daily Generation\t11.4\n"
+    "sensor.sigen_plant_daily_load_consumption\tkWh\tSigen Plant Daily Load Consumption\t20.4\n"
+    "sensor.sigen_plant_daily_grid_import_energy\tkWh\tSigen Plant Daily Grid Import Energy\t6.8\n"
+    "sensor.sigen_plant_daily_grid_export_energy\tkWh\tSigen Plant Daily Grid Export Energy\t0.0\n"
+    "sensor.sigen_plant_daily_battery_charge_energy\tkWh\tSigen Plant Daily Battery Charge Energy\t3.0\n"
+    "sensor.sigen_plant_daily_battery_discharge_energy\tkWh\tSigen Plant Daily Battery Discharge Energy\t5.2\n"
+    "sensor.solcast_pv_forecast_forecast_today\tkWh\tSolcast Forecast Today\t24.0\n"
+    "sensor.solcast_pv_forecast_forecast_remaining_today\tkWh\tSolcast Forecast Remaining Today\t11.9\n"
+    "sensor.solcast_pv_forecast_peak_forecast_today\tW\tSolcast Peak Forecast Today\t4380\n";
+
+HaCandidate s_ha_catalog[40];
+size_t s_ha_catalog_count = 0;
+SheetHaSensors s_sheet_ha_sensors;
+SheetHaList s_sheet_ha_list;
+
+void push_ha_list() {
+  s_sheet_ha_list.items = s_ha_catalog;
+  s_sheet_ha_list.count = s_ha_catalog_count;
+  settings_sheet_set_ha_list(s_sheet_ha_list);
+}
+
 void push_sheet_device() {
   s_sheet_device.uptime_s = lv_tick_get() / 1000 + 3 * 3600 + 12 * 60;
   settings_sheet_set_device(s_sheet_device);
@@ -705,6 +747,12 @@ void seed_sheet() {
 
   snprintf(s_sheet_device.firmware, sizeof(s_sheet_device.firmware), "%s", PUCK_FW_VERSION);
   snprintf(s_sheet_device.host, sizeof(s_sheet_device.host), "sigenstorpanel");
+  // A Home Assistant set up most of the way: some roles chosen, the rest not.
+  snprintf(s_sheet_ha_sensors.entity[0], HA_ENTITY_ID_MAX, "sensor.sigen_plant_pv_power");
+  snprintf(s_sheet_ha_sensors.entity[1], HA_ENTITY_ID_MAX, "sensor.sigen_plant_grid_active_power");
+  snprintf(s_sheet_ha_sensors.entity[7], HA_ENTITY_ID_MAX,
+           "sensor.sigen_plant_battery_state_of_charge");
+  settings_sheet_set_ha_sensors(s_sheet_ha_sensors);
   snprintf(s_sheet_device.ip, sizeof(s_sheet_device.ip), "192.168.1.100");
   s_sheet_device.internal_free = 412 * 1024;
   s_sheet_device.internal_largest = 192 * 1024;
@@ -879,6 +927,47 @@ SheetActions sim_sheet_actions() {
     printf("[sim] home assistant token (%zu characters)\n", strlen(token));
     s_sheet_data.ha_set = true;
     settings_sheet_set_data(s_sheet_data);
+    return true;
+  };
+  // Loads after a short pause, as a real Home Assistant would.
+  actions.load_ha_list = []() {
+    printf("[sim] home assistant sensor list requested\n");
+    s_sheet_ha_list.state = SheetHaListState::Loading;
+    push_ha_list();
+    lv_timer_t* done = lv_timer_create(
+        [](lv_timer_t*) {
+          s_ha_catalog_count = ha_catalog_parse(DEMO_HA_CATALOG, strlen(DEMO_HA_CATALOG),
+                                                s_ha_catalog, sizeof(s_ha_catalog) / sizeof(s_ha_catalog[0]));
+          s_sheet_ha_list.state = SheetHaListState::Ready;
+          push_ha_list();
+        },
+        600, nullptr);
+    lv_timer_set_repeat_count(done, 1);
+  };
+  actions.set_ha_sensor = [](int role, const char* entity_id) {
+    printf("[sim] home assistant %s: %s\n", HA_ENTITIES[role].label,
+           entity_id[0] != '\0' ? entity_id : "(not read)");
+    snprintf(s_sheet_ha_sensors.entity[role], HA_ENTITY_ID_MAX, "%s", entity_id);
+    settings_sheet_set_ha_sensors(s_sheet_ha_sensors);
+  };
+  // As settings_clean_hostname() does it on the device, roughly.
+  actions.set_device_name = [](const char* name, char* error, size_t size) {
+    char clean[33] = {};
+    size_t length = 0;
+    for (const char* c = name; *c != '\0' && length + 1 < sizeof(clean); ++c) {
+      const char lower = static_cast<char>(*c >= 'A' && *c <= 'Z' ? *c + 32 : *c);
+      if ((lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9') || lower == '-') {
+        clean[length++] = lower;
+      }
+    }
+    if (length == 0) {
+      snprintf(error, size, "That leaves nothing to use as a name");
+      return false;
+    }
+    printf("[sim] device name %s (after a restart)\n", clean);
+    s_sheet_device.host_pending = strcmp(clean, s_sheet_device.host) != 0;
+    snprintf(s_sheet_device.host, sizeof(s_sheet_device.host), "%s", clean);
+    push_sheet_device();
     return true;
   };
   actions.set_modbus_devices = [](uint8_t plant, const SheetModbusDevice* devices, int count) {
@@ -1321,6 +1410,20 @@ int run_sheet_shots(const std::string& directory) {
   settings_sheet_open(SheetPage::Data, false);
   run_frames(50);
   failures += save_shot(directory, "sheet_4f_data_home_assistant") ? 0 : 1;
+  // The sensor list fills in once Home Assistant has answered.
+  settings_sheet_show_ha_sensors();
+  run_frames(1000);
+  failures += save_shot(directory, "sheet_4g_ha_sensors") ? 0 : 1;
+  settings_sheet_show_ha_picker(static_cast<int>(HaEntity::HomePower));
+  run_frames(50);
+  failures += save_shot(directory, "sheet_4h_ha_picker") ? 0 : 1;
+  // A tap on a row saves that sensor for the role: the second row, by name.
+  drag(300, 221, 300, 221);
+  check(strcmp(s_sheet_ha_sensors.entity[static_cast<int>(HaEntity::HomePower)],
+               "sensor.shelly_em_garage_power") == 0,
+        "tapping a sensor in the picker saves it for the role");
+  settings_sheet_close(false);
+  settings_sheet_open(SheetPage::Data, false);
   settings_sheet_open(SheetPage::Solar, false);
   run_frames(50);
   failures += save_shot(directory, "sheet_5d_solar_home_assistant") ? 0 : 1;
@@ -1334,6 +1437,10 @@ int run_sheet_shots(const std::string& directory) {
   push_sheet_device();
   run_frames(100);
   failures += save_shot(directory, "sheet_6b_update") ? 0 : 1;
+  settings_sheet_show_entry(SheetEntry::DeviceName);
+  run_frames(50);
+  failures += save_shot(directory, "sheet_6c_device_name") ? 0 : 1;
+  settings_sheet_close(false);
   s_sheet_device.update = SheetUpdate::UpToDate;
   push_sheet_device();
 

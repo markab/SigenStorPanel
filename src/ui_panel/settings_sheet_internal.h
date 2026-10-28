@@ -133,6 +133,17 @@ void plant_close_modals();
 // "2 inverters, 1 charger", for the Data page.
 const char* plant_devices_summary(const SheetData& data, char* out, size_t size);
 
+// settings_sheet_ha.cpp: the Home Assistant sensor list and its picker.
+void ha_build_modals(lv_obj_t* root);
+void ha_set_sensors(const SheetHaSensors& sensors);
+void ha_set_list(const SheetHaList& list);
+void ha_open_sensors();
+void ha_open_picker(int role);
+bool ha_modal_open();
+void ha_close_modals();
+// "12 of 21 chosen", for the Data page.
+const char* ha_sensors_summary(char* out, size_t size);
+
 // ----------------------------------------------------------------- confirm ---
 
 void disarm();
