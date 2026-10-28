@@ -217,7 +217,7 @@ void apply_screen_schedule() {
   // Recently touched or pressed: leave it up. LVGL's inactivity timer is the same
   // one the idle dim reads, so a swipe through the screens holds it awake as
   // naturally as it holds off the dim. For the room sensor the hold is the whole
-  // timeout: someone tapping at the panel is there, whatever the radar thinks.
+  // timeout: someone tapping at the panel is there, whatever the sensor thinks.
   const uint32_t hold_ms = overnight ? PUCK_SCREEN_WAKE_S * 1000 : empty_after_ms;
   if (lv_disp_get_inactive_time(nullptr) < hold_ms) {
     return;

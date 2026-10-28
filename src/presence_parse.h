@@ -3,7 +3,7 @@
 // This repo's own; SigenStorPuck has no sensor. Deliberately free of Arduino
 // headers so the sim can check it (src/sim/panel_selftest.cpp).
 //
-// The sensor (a Silicon Micro radar SoC behind a PY32 MCU) talks 115200 8N1. Out
+// The sensor (a Silicon Micro mmWave SoC behind a PY32 MCU) talks 115200 8N1. Out
 // of the box it is in "normal" mode, which sends text lines: "ON" or "OFF" for
 // presence, with a "Range <n>" line alongside while someone is there. It can be
 // switched to "report" mode, which sends binary frames instead:
