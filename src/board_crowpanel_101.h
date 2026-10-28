@@ -121,10 +121,14 @@ static constexpr int8_t PUCK_SDIO_D1 = 16;
 static constexpr int8_t PUCK_SDIO_D2 = 15;
 static constexpr int8_t PUCK_SDIO_D3 = 14;
 
-// TODO(confirm on hardware): the pin the P4 resets the C6 with. Not in Elecrow's
-// pin table; the core's default is GPIO54. WiFi works with it on a V1.2 board, but
-// the C6 boots by itself at power-on, so that does not prove the reset reaches it.
-static constexpr int8_t PUCK_SDIO_C6_RESET = 54;
+// The C6's EN pin, which esp-hosted pulses low to reset the C6 at every boot. In
+// the V1.2 schematic the net C6_EN joins IC1.EN, its pull-up and RC, and P4
+// GPIO32. Not the core's default GPIO54 (which Elecrow's example sdkconfig also
+// keeps): on this board 54 only reaches pin 12 of the J7 header, so the C6 was
+// never reset, and any reset of the P4 alone while WiFi was busy left the C6
+// unreachable until the power was cut. The core's compiled polarity
+// (RESET_ACTIVE_HIGH: high runs, low resets) is right for an EN pin.
+static constexpr int8_t PUCK_SDIO_C6_RESET = 32;
 
 // --------------------------------------------------------- presence sensor ---
 //

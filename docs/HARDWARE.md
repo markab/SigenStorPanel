@@ -90,11 +90,21 @@ way to change them, so WiFi cannot work on it. **3.3.x** has `hostedSetPins(clk,
 d0, d1, d2, d3, rst)`, which must be called before `WiFi.begin()`, and esp-hosted 2.x to
 match the C6's firmware.
 
-**Unknown: the GPIO the P4 resets the C6 with.** The core's default is 54. Find it in
-Elecrow's ESP-IDF example `sdkconfig`
-(`CONFIG_ESP_HOSTED_SDIO_GPIO_RESET_SLAVE`, or similar) before Phase 2. If the reset pin
-is wrong, the C6 never starts and `WiFi.begin()` times out with nothing obvious in the
-log.
+**The C6 is reset through GPIO32, its EN pin**, not the core's default GPIO54. In the
+V1.2 Eagle schematic (`Eagle_SCH&PCB/1.2/*.sch` in Elecrow's repo) the net `C6_EN` joins
+the C6's EN, a pull-up (R77), a capacitor (C15) and P4 GPIO32. GPIO54 reaches only pin 12
+of the J7 header. Elecrow's example `sdkconfig` keeps the default 54, which is wrong for
+the board, and their V1.2 readme says GPIO32.
+
+With the wrong pin the C6 is never reset. It still boots at power-on, so WiFi works, but
+any reset of the P4 alone while WiFi is busy (Restart, a crash, a watchdog, flashing)
+leaves the C6 mid-session. Every later boot then fails at `WiFi.mode()` with
+`sdmmc_send_cmd returned 0x107` and `H_SDIO_DRV: failed to read registers`, and
+esp-hosted restarts the P4 every 14 s until the power is cut. Seen on the first board,
+2026-10-28.
+
+The core's compiled polarity, `RESET_ACTIVE_HIGH`, is right for an EN pin: esp-hosted
+holds it high to run and pulses it low to reset.
 
 **C6 firmware updates.** esp-hosted supports the host flashing the slave over the
 existing link (host-performs-slave-OTA). Elecrow documents it. Not needed unless the
@@ -219,8 +229,8 @@ The speaker could give alerts later, as claude-gadget's `sound.cpp` does. Not pl
 
 ## Open questions to settle on hardware
 
-1. C6 reset GPIO. WiFi works with the core's default, GPIO54, but the C6 boots by
-   itself at power-on, so that does not prove the P4 can reset it.
+1. That a reset of the P4 alone (flashing, Restart) now leaves WiFi working, with the C6
+   reset through GPIO32.
 2. BOOT's GPIO, and whether it reads cleanly after boot.
 3. The UART1 header's pin order, and that GPIO48 is free for the presence sensor.
 4. Whether the HMMD sends its text output continuously (every ~100 ms) or only on a
