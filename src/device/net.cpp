@@ -166,11 +166,11 @@ void on_connected() {
   Serial.printf("[net] connected to %s, ip %s\n", WiFi.SSID().c_str(),
                 WiFi.localIP().toString().c_str());
 
+  // The name only: there is no web interface to advertise (docs/UX.md).
   if (!s_mdns_up && MDNS.begin(s_active_hostname.c_str())) {
-    MDNS.addService("http", "tcp", 80);
     s_mdns_up = true;
-    Serial.printf("[net] settings page at http://%s.local/ or http://%s/\n",
-                  s_active_hostname.c_str(), WiFi.localIP().toString().c_str());
+    Serial.printf("[net] answering as %s.local (%s)\n", s_active_hostname.c_str(),
+                  WiFi.localIP().toString().c_str());
   }
 
   if (!s_time_requested) {
