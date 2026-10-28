@@ -32,9 +32,9 @@ records its V1 facts, and it saved re-deriving them twice.
 | | |
 |---|---|
 | SoC | **ESP32-P4**, dual-core RISC-V at up to 400 MHz. **No radio of its own** |
-| Silicon revision | **Unknown. Must be below 3.0** for pioarduino's `board = esp32-p4`; rev 3 needs `esp32-p4_r3`. Ask the seller; the first boot log prints it |
+| Silicon revision | **v1.3** on the first board (ROM `esp32p4-eco2-20240710`), so pioarduino's `board = esp32-p4` is right. Rev 3 parts would need `esp32-p4_r3`; `[chip]` in the boot log prints it |
 | Flash | 16 MB. pioarduino's `esp32-p4.json` says 4 MB, so override it |
-| PSRAM | Hex-mode (`CONFIG_SPIRAM_MODE_HEX=y` in the core's P4 libs). Size to confirm. **Do not carry over the S3's `qio_opi` / `opi` settings** |
+| PSRAM | **32 MB**, AP hex-mode, 200 MHz (`CONFIG_SPIRAM_MODE_HEX=y` in the core's P4 libs). **Do not carry over the S3's `qio_opi` / `opi` settings** |
 | Bootloader offset | **0x2000**, not the S3's 0x0 (`CONFIG_BOOTLOADER_OFFSET_IN_FLASH=0x2000`; esp-web-tools' P4 module agrees, `BOOTLOADER_FLASH_OFFSET=8192`) |
 | Deep-sleep wake | Only GPIO 0–15 can wake the P4 (LP GPIOs). No `ext0` as on the S3 |
 
@@ -123,9 +123,9 @@ builds.
 | | |
 |---|---|
 | RST | The chip's EN line. Not readable |
-| BOOT | The P4's boot strap (**assumed GPIO35, confirm**). Readable as an ordinary button after boot. Held at power-on, it forces download mode: silicon strapping, nothing firmware can change |
+| BOOT | The P4's boot strap (**assumed GPIO35, still to confirm by pressing it**). Readable as an ordinary button after boot. Held at power-on, it forces download mode: silicon strapping, nothing firmware can change |
 | Slide switch | Hard power cut. Firmware cannot see or latch it |
-| Battery | Connector with a charger. **No PMIC, no fuel gauge** |
+| Battery | Connector with a charger. **No PMIC, no fuel gauge**, but Elecrow's factory app reads a battery voltage through the ADC (`bat_voltage = 4581 mV`, `bat_level = 100 %` with no battery fitted). The pin is not known yet |
 | Power draw | **8–10 W with the screen on.** More than a laptop USB port gives; use a 5 V 2 A supply, on the UART3-IN header or the USB 2.0 port |
 
 So the Puck's gestures change:
@@ -138,9 +138,26 @@ docs/UX.md).
 
 ## Serial and flashing
 
-- **UART0 through a CH341** USB-serial bridge, not native USB-CDC. Do not set
-  `ARDUINO_USB_CDC_ON_BOOT`. The bridge does the auto-reset into download mode.
-- **A separate USB 2.0 port** is the P4's own USB. Not needed for flashing.
+- **UART0 through a WCH CH340K** (USB 1A86:7522) on the board's UART USB-C port, not
+  native USB-CDC. Do not set `ARDUINO_USB_CDC_ON_BOOT`. The bridge does the
+  auto-reset into download mode, and esptool's reset works through it.
+- **macOS needs WCH's driver** for this chip: Apple's built-in one only takes the
+  CH340/CH341's 1A86:7523. Install CH34xVCPDriver from
+  [WCHSoftGroup/ch34xser_macos](https://github.com/WCHSoftGroup/ch34xser_macos) and
+  allow it under System Settings, General, Login Items & Extensions, Driver
+  Extensions. The port is then `/dev/cu.wchusbserial*`.
+- **Speed:** 921600 drops the stream at once. Uploads work at 460800 (`upload_speed`
+  in platformio.ini). Reading the whole 16 MB flash failed at 460800 and needed
+  230400, in 1 MB pieces.
+- **Opening the port does not reset the board**, with DTR and RTS held low, unlike the
+  S3s. A serial logger can attach to a running board.
+- **A separate USB 2.0 port** is the P4's own USB. Not needed for flashing. Elecrow's
+  factory app enumerates on it as "Advance-P4", 303A:4004, a TinyUSB HID device with no
+  serial port.
+- **The factory firmware is backed up** (16 MB, from the first board, MAC
+  `e8:f6:0a:e1:d5:df`) outside the repo, in `~/GitHub/SigenStorPanel-backups/`, with its
+  SHA-256 and boot log. It is Elecrow's, not ours to commit. Writing it back at 0x0
+  restores the board.
 - `esptool.py --chip esp32p4 read_mac` identifies the board. Do it before every flash:
   more than one ESP32 board shares this desk.
 - **Serial screenshots are impractical.** 1024×600×2 B is 1.2 MB, about 105 s per screen
@@ -183,30 +200,38 @@ metal no. Waveshare has a radome design guide.
 
 The speaker could give alerts later, as claude-gadget's `sound.cpp` does. Not planned.
 
+## Settled on the first board (2026-10-28, V1.2, MAC `e8:f6:0a:e1:d5:df`)
+
+- **Silicon revision v1.3**: `board = esp32-p4` is right.
+- **Board version V1.2**, so the 4-bit SDIO table in the profile applies.
+- **WiFi through the C6 works**: a scan finds the networks, the panel joins one picked on
+  the glass and answers as `sigenstorpanel.local`. Scanning through esp-hosted works as it
+  does on an S3. Two `H_SDIO_DRV: Dropping packet(s)` errors appear once at start-up
+  and have not recurred.
+- **`Arduino_DSI_Display` drives the EK79007** with the Espressif init table; no need for
+  `esp_lcd` directly. Backlight on GPIO31 works.
+- **GT911 at 0x14**, and swipes and taps land where they should with the profile's
+  orientation.
+- **PSRAM is 32 MB.** About 390 KB of internal heap is free at boot.
+- **Opening the serial port does not reset the board** (see Serial and flashing).
+- The I2C scan at boot finds an unrecognised device at **0x2F**, not yet identified. The
+  GT911 does not show in that scan because it is still held in reset at that point.
+
 ## Open questions to settle on hardware
 
-1. Silicon revision (decides `esp32-p4` vs `esp32-p4_r3`).
-2. Board version printed on the PCB (decides the SDIO table).
-3. C6 reset GPIO.
-4. BOOT's GPIO, and whether it reads cleanly after boot.
-5. GT911 address (0x5D or 0x14).
-6. Touch orientation (mirror X / Y).
-7. PSRAM size.
-8. Whether `Arduino_DSI_Display` drives the EK79007 with the Espressif init table, or
-   whether `esp_lcd` directly is needed.
-9. Whether opening the CH341 port resets the board on macOS, as it does on the S3s.
-10. Whether scanning (`WiFi.scanNetworks(true)`) works through esp-hosted as it does on an
-    S3. The network picker and roaming both depend on it.
-11. The UART1 header's pin order, and that GPIO48 is free for the presence sensor.
-12. Whether the HMMD sends its text output continuously (every ~100 ms) or only on a
-    change. The panel treats 10 s of silence as "no sensor". If the sensor only
-    reports changes, that check needs the report-mode frames, or OT2, instead.
-13. Whether swiping to and from the flows screen stays smooth. Its anti-aliased
-    ribbons (`draw_ribbons()` in `src/ui_panel/screen_flows.cpp`) issue about ten
-    times the draw calls of the old 3 px slices, on every frame of a swipe. If it
-    drags, render the ribbons once into a PSRAM canvas when the data changes and
-    blit that instead.
-14. Whether the anti-aliased chart outline (`PUCK_CHART_SMOOTH_EDGE`) keeps a swipe
-    between the chart screens smooth. It draws a line segment per chart column and
-    the fill a pixel column at a time, roughly twice the work of the column path.
-    If it drags, set it to false in `src/board_crowpanel_101.h`.
+1. C6 reset GPIO. WiFi works with the core's default, GPIO54, but the C6 boots by
+   itself at power-on, so that does not prove the P4 can reset it.
+2. BOOT's GPIO, and whether it reads cleanly after boot.
+3. The UART1 header's pin order, and that GPIO48 is free for the presence sensor.
+4. Whether the HMMD sends its text output continuously (every ~100 ms) or only on a
+   change. The panel treats 10 s of silence as "no sensor". If the sensor only
+   reports changes, that check needs the report-mode frames, or OT2, instead.
+5. Whether swiping to and from the flows screen stays smooth. Its anti-aliased
+   ribbons (`draw_ribbons()` in `src/ui_panel/screen_flows.cpp`) issue about ten
+   times the draw calls of the old 3 px slices, on every frame of a swipe. If it
+   drags, render the ribbons once into a PSRAM canvas when the data changes and
+   blit that instead.
+6. Whether the anti-aliased chart outline (`PUCK_CHART_SMOOTH_EDGE`) keeps a swipe
+   between the chart screens smooth. It draws a line segment per chart column and
+   the fill a pixel column at a time, roughly twice the work of the column path.
+   If it drags, set it to false in `src/board_crowpanel_101.h`.

@@ -122,8 +122,8 @@ static constexpr int8_t PUCK_SDIO_D2 = 15;
 static constexpr int8_t PUCK_SDIO_D3 = 14;
 
 // TODO(confirm on hardware): the pin the P4 resets the C6 with. Not in Elecrow's
-// pin table; the core's default is GPIO54. Find it from their ESP-IDF example's
-// sdkconfig (CONFIG_ESP_HOSTED_SDIO_GPIO_RESET_SLAVE) before Phase 2.
+// pin table; the core's default is GPIO54. WiFi works with it on a V1.2 board, but
+// the C6 boots by itself at power-on, so that does not prove the reset reaches it.
 static constexpr int8_t PUCK_SDIO_C6_RESET = 54;
 
 // --------------------------------------------------------- presence sensor ---
