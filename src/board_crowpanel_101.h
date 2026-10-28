@@ -136,8 +136,10 @@ static constexpr int8_t PUCK_SDIO_C6_RESET = 32;
 // which gives 3.3 V at up to 1 A; the sensor wants 3.0-3.6 V at about 50 mA.
 //   sensor 3V3 -> 3V3, GND -> GND, TX -> GPIO48 (our RX), RX -> GPIO47 (our TX)
 // Its OT2 presence pin is not needed: presence comes over the UART.
-// TODO(confirm on hardware): the header's pin order, and that GPIO48 is free (an
-// Elecrow lesson drives an LED module through this header on GPIO48).
+// The header is J2, a 4-pin HY2.0 (2.0 mm) socket. From the V1.2 schematic: pin 1
+// RXD1 = GPIO48, pin 2 TXD1 = GPIO47, pin 3 3V3, pin 4 GND, and nothing else on
+// the board uses either GPIO. (An Elecrow lesson drives an LED module plugged into
+// this socket from GPIO48; with nothing plugged in, the pin is free.)
 static constexpr int8_t PUCK_PRESENCE_RX = 48;
 static constexpr int8_t PUCK_PRESENCE_TX = 47;
 static constexpr uint32_t PUCK_PRESENCE_BAUD = 115200;

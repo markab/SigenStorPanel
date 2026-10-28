@@ -182,8 +182,21 @@ can switch the backlight off when nobody is in the room. Without one, nothing ch
 |---|---|
 | Sensor | 3.0-3.6 V, about 50 mA; UART 115200 8N1 at 3.3 V; pins 3V3, GND, TX, RX, OT2 |
 | Range | wall-mounted: 8 m for movement, 6 m for micro-movement (breathing, typing) |
-| Connection | the board's **UART1 header** ("UART"): 3.3 V out at up to 1 A, RX **GPIO48**, TX **GPIO47** |
-| Wiring | sensor 3V3 to 3V3, GND to GND, **TX to GPIO48**, **RX to GPIO47**. OT2 not needed |
+| Connection | the board's UART socket, **J2**: a 4-pin HY2.0 (2.0 mm pitch, Grove-style) socket. 3.3 V out at up to 1 A |
+| Wiring | see the table below. OT2 not needed |
+
+J2's pins, from the V1.2 Eagle schematic's netlist (nets RXD1 and TXD1 go nowhere else):
+
+| J2 pin | Net | P4 GPIO | Sensor pin |
+|---|---|---|---|
+| 1 | RXD1 (panel receives) | 48 | **TX** |
+| 2 | TXD1 (panel sends) | 47 | **RX** |
+| 3 | VDD_3V3 | | **3V3** |
+| 4 | GND | | **GND** |
+
+TX and RX cross over: the sensor's TX goes to the panel's receive pin. Count pin 1
+from the end the board's silkscreen marks; if it is not marked, check with a meter
+that pin 3 reads 3.3 V before plugging the sensor in.
 
 Why the UART and not OT2:
 - OT2 is a single high/low line, but the only free header with power is the UART one,
@@ -232,16 +245,15 @@ The speaker could give alerts later, as claude-gadget's `sound.cpp` does. Not pl
 1. That a reset of the P4 alone (flashing, Restart) now leaves WiFi working, with the C6
    reset through GPIO32.
 2. BOOT's GPIO, and whether it reads cleanly after boot.
-3. The UART1 header's pin order, and that GPIO48 is free for the presence sensor.
-4. Whether the HMMD sends its text output continuously (every ~100 ms) or only on a
+3. Whether the HMMD sends its text output continuously (every ~100 ms) or only on a
    change. The panel treats 10 s of silence as "no sensor". If the sensor only
    reports changes, that check needs the report-mode frames, or OT2, instead.
-5. Whether swiping to and from the flows screen stays smooth. Its anti-aliased
+4. Whether swiping to and from the flows screen stays smooth. Its anti-aliased
    ribbons (`draw_ribbons()` in `src/ui_panel/screen_flows.cpp`) issue about ten
    times the draw calls of the old 3 px slices, on every frame of a swipe. If it
    drags, render the ribbons once into a PSRAM canvas when the data changes and
    blit that instead.
-6. Whether the anti-aliased chart outline (`PUCK_CHART_SMOOTH_EDGE`) keeps a swipe
+5. Whether the anti-aliased chart outline (`PUCK_CHART_SMOOTH_EDGE`) keeps a swipe
    between the chart screens smooth. It draws a line segment per chart column and
    the fill a pixel column at a time, roughly twice the work of the column path.
    If it drags, set it to false in `src/board_crowpanel_101.h`.
