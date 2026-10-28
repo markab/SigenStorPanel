@@ -263,9 +263,10 @@ void push_join() {
 void push_device() {
   SheetDevice device;
   snprintf(device.firmware, sizeof(device.firmware), "%s", PUCK_FW_VERSION);
-  snprintf(device.host, sizeof(device.host), "%s", net_hostname().c_str());
+  // Bare: the sheet adds ".local" where it shows the address.
+  snprintf(device.host, sizeof(device.host), "%s", net_name().c_str());
   // Registered once, at boot, so a saved new name waits for a restart.
-  device.host_pending = settings_get().hostname != net_hostname();
+  device.host_pending = settings_get().hostname != net_name();
   snprintf(device.ip, sizeof(device.ip), "%s", net_ip().c_str());
   device.uptime_s = millis() / 1000;
   device.internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);

@@ -393,6 +393,10 @@ String net_hostname() {
   return s_mdns_up ? s_active_hostname + ".local" : String();
 }
 
+String net_name() {
+  return s_active_hostname;
+}
+
 String net_ip() {
   return WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String();
 }

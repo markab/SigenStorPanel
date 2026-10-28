@@ -50,9 +50,13 @@ void net_loop();
 
 NetState net_state();
 
-// Where to find the settings page once on the network: "sigenstorpanel.local"
+// The panel's address once on the network: "sigenstorpanel.local"
 // and the IP. Empty until connected.
 String net_hostname();
+
+// The name registered this boot, without ".local", whether or not mDNS is up yet.
+// What a newly saved name is compared against: a new one waits for a restart.
+String net_name();
 String net_ip();
 
 // True once the clock has been set from NTP. TLS certificate validation needs it,
