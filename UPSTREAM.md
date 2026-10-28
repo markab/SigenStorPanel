@@ -87,7 +87,8 @@ if it applies.
 | `src/device/settings.{h,cpp}` | New NVS namespace; settings that move onto the device |
 | `src/presence_parse.{h,cpp}`, `src/device/presence.{h,cpp}`, `src/sim/panel_selftest.cpp` | New. The optional mmWave room sensor, and checks for the panel's own Arduino-free code. `selftest.cpp` stays verbatim; the sim's `--selftest` runs both |
 | `src/device/settings_bridge.{h,cpp}` | New. Connects the on-device settings sheet (`src/ui_panel/settings_sheet.*`) to the settings store, WiFi, poller and updater. No upstream equivalent |
-| `src/device/settings_server.{h,cpp}` | Trimmed to the deep config (docs/UX.md) |
+| `src/device/settings_server.{h,cpp}` | Trimmed to the deep config (docs/UX.md). Saves a kiosk code tidied (`src/kiosk_code.h`) |
+| `src/kiosk_code.{h,cpp}` | New. Tidies a kiosk code typed on the glass or the web page into the one spelling SigenStor Display (v0.38 on) hashes. Arduino-free beside the verbatim `enrol_url`, checked by `panel_selftest.cpp` |
 | `src/device/updater.cpp`, `src/device/updater_progress.h` | Pages URL points at SigenStorPanel. Install progress for the on-screen bar, restarts itself after showing 100%, and with "check automatically" on checks after boot and every 12 h |
 | `src/ui/theme.h` | Font roles and spacing for 1024×600 |
 | `src/ui/fonts/`, `tools/generate_fonts.sh` | Larger Montserrat subsets |
@@ -134,6 +135,7 @@ one up, and delete the row once the pull lands and is in the pull log.
 | 2026-10-27, Phase 0a | `src/device/sigen_api.cpp`, `solar_api.cpp`, `home_assistant_api.cpp` | The User-Agent is hardcoded as `"SigenStorPuck/" PUCK_FW_VERSION " (ESP32-S3)"`. Build it from two new `board_config.h` macros: a product name and a chip name | The panel identifies itself to the server and Home Assistant as a SigenStorPuck on an S3 |
 | 2026-10-27, Phase 0a | `src/device/modbus_api.cpp` | Calls `NetworkClient::flush()`, which Arduino 3.3 deprecates in favour of `clear()`. Fix it when SigenStorPuck moves to 3.3.8 (step 3 of the plan above). `settings_server.cpp` has the same two calls but is adapted here, so fix those here at the same time | A deprecation warning on every panel build. It still works |
 | 2026-10-27, settings sheet | `src/device/updater.h` | Optional. The panel shows install progress, through its own `updater_progress.h` beside the verbatim header. If the Puck wants a progress ring too, add `updater_progress_percent()` to `updater.h` upstream and delete the panel's extra header | Nothing breaks: the panel's addition sits beside the shared header |
+| 2026-10-28, settings sheet | `src/enrol_url.{h,cpp}` | Optional. Take in `kiosk_code_tidy()` from the panel's `src/kiosk_code.{h,cpp}` (beside `enrol_url_parse()`, or as its own shared file) and use it on the web page's token field. The header also predates v0.38: it says the device never asks for the server and token apart, and calls the token 43 characters. Codes are now 20 | The panel keeps its own `kiosk_code.{h,cpp}`. The Puck's web page saves a typed code as given, spaces and capitals included; the server still matches it |
 | 2026-10-27, Phase 0a | `src/display.h`, `src/touch.h` | Their comments describe the CO5300 panel and CST9217 touch. The contract is generic, so describe it generically | Comments name the wrong chips. The functions are right |
 
 ## Pull log

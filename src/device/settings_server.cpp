@@ -5,6 +5,7 @@
 #include "board_config.h"
 #include "enrol_url.h"
 #include "home_assistant_api.h"
+#include "kiosk_code.h"
 #include "modbus_api.h"
 #include "net.h"
 #include "poller.h"
@@ -301,7 +302,7 @@ String page(const String& message, bool message_is_error) {
   html += "<input id=base name=base value='";
   html += escape_html(settings.base_url);
   html += "' placeholder='http://192.168.1.10:8000'>";
-  html += "<label for=token>Kiosk token</label>";
+  html += "<label for=token>Kiosk code</label>";
   // Never the real token: the page shows only its last four characters so you can
   // tell one device's enrolment from another. Echoing a working credential back
   // into a page — or a browser history, or a screenshot — is not worth the
@@ -774,6 +775,15 @@ void handle_save() {
   if (token.length() == 0 && settings_get().token.isEmpty()) {
     send_page("No token stored yet, so one is needed.", true);
     return;
+  }
+  // Saved in the one spelling the server hashes, as the panel's own keyboard does.
+  if (token.length() > 0) {
+    char tidy[KIOSK_CODE_SIZE];
+    if (!kiosk_code_tidy(token.c_str(), tidy, sizeof(tidy))) {
+      send_page("That is not a kiosk code. A code is 20 letters and digits, from Admin.", true);
+      return;
+    }
+    token = tidy;
   }
 
   if (!settings_set_server(base, token)) {

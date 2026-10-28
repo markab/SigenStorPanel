@@ -110,7 +110,8 @@ lv_obj_t* s_saved_none = nullptr;
 lv_obj_t* s_source = nullptr;
 lv_obj_t* s_source_detail[3] = {};
 lv_obj_t* s_server_host = nullptr;
-lv_obj_t* s_server_link = nullptr;
+lv_obj_t* s_server_code = nullptr;
+lv_obj_t* s_server_set_code = nullptr;
 lv_obj_t* s_server_forget = nullptr;
 lv_obj_t* s_modbus_field = nullptr;
 lv_obj_t* s_modbus_value = nullptr;
@@ -174,7 +175,14 @@ bool s_join_secure = true;
 // WiFi password: the same screen types all of them.
 char s_password[256] = {};
 // What the keyboard screen is for.
-enum class EntryKind : uint8_t { WifiPassword, EnrolmentLink, HaAddress, HaToken };
+enum class EntryKind : uint8_t {
+  WifiPassword,
+  EnrolmentLink,
+  ServerAddress,
+  KioskCode,
+  HaAddress,
+  HaToken,
+};
 EntryKind s_entry_kind = EntryKind::WifiPassword;
 char s_entry_error[64] = {};
 bool s_password_visible = false;
@@ -376,12 +384,16 @@ void refresh_data() {
     set_hidden(s_source_detail[i], i != index);
   }
 
-  lv_label_set_text(s_server_host, s_data.server_set ? s_data.server_host : "--");
-  lv_label_set_text(s_server_link, s_data.server_set ? "Set" : "Not set");
-  lv_obj_set_style_text_color(s_server_link,
-                              lv_color_hex(s_data.server_set ? PUCK_COLOUR_BATTERY : PUCK_COLOUR_WARN),
+  const bool has_server = s_data.server_host[0] != '\0';
+  const bool has_code = s_data.server_code[0] != '\0';
+  lv_label_set_text(s_server_host, has_server ? s_data.server_host : "--");
+  lv_label_set_text(s_server_code, has_code ? s_data.server_code : "Not set");
+  lv_obj_set_style_text_color(s_server_code,
+                              lv_color_hex(has_code ? PUCK_COLOUR_TEXT : PUCK_COLOUR_WARN),
                               LV_PART_MAIN);
-  set_disabled(s_server_forget, !s_data.server_set);
+  // A code is one server's, so the server comes first.
+  set_disabled(s_server_set_code, !has_server);
+  set_disabled(s_server_forget, !has_server && !has_code);
 
   lv_label_set_text(s_modbus_value, s_data.modbus_host[0] != '\0' ? s_data.modbus_host : "Tap to set");
   lv_obj_set_style_text_color(
@@ -703,7 +715,7 @@ void on_source(lv_event_t* /*event*/) {
 }
 
 void on_forget_server(lv_event_t* /*event*/) {
-  if (!confirmed(s_server_forget, "Forget link?")) {
+  if (!confirmed(s_server_forget, "Forget server?")) {
     return;
   }
   if (s_actions.forget_server != nullptr) {
@@ -1135,16 +1147,27 @@ void build_data(lv_obj_t* tile) {
   lv_obj_t* server = detail_box();
   s_source_detail[0] = server;
   s_server_host = detail(server, "Server");
-  s_server_link = detail(server, "Enrolment link");
+  s_server_code = detail(server, "Kiosk code");
+  // The Admin page shows the server and code apart as well as in one link. Apart
+  // is the easier to type: the link's ? and = are two keyboard pages away.
   lv_obj_t* server_buttons = button_row(server);
-  lv_obj_t* enter_link = button(server_buttons, "Enter link", COLOUR_ACCENT, PUCK_COLOUR_TEXT);
+  lv_obj_t* set_server = button(server_buttons, "Set server", COLOUR_ACCENT, PUCK_COLOUR_TEXT);
+  lv_obj_add_event_cb(
+      set_server, [](lv_event_t*) { settings_sheet_show_entry(SheetEntry::ServerAddress); },
+      LV_EVENT_CLICKED, nullptr);
+  s_server_set_code = button(server_buttons, "Set code", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  lv_obj_add_event_cb(
+      s_server_set_code, [](lv_event_t*) { settings_sheet_show_entry(SheetEntry::KioskCode); },
+      LV_EVENT_CLICKED, nullptr);
+  lv_obj_t* link_buttons = button_row(server);
+  lv_obj_t* enter_link = button(link_buttons, "Enter link", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
   lv_obj_add_event_cb(
       enter_link, [](lv_event_t*) { settings_sheet_show_entry(SheetEntry::EnrolmentLink); },
       LV_EVENT_CLICKED, nullptr);
-  s_server_forget = button(server_buttons, "Forget link", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  s_server_forget = button(link_buttons, "Forget server", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
   lv_obj_add_event_cb(s_server_forget, on_forget_server, LV_EVENT_CLICKED, nullptr);
-  hint(server, "The link from SigenStor Display's Admin page. It can also be pasted on the "
-               "web settings page (Device page).");
+  hint(server, "From SigenStor Display's Admin page: the server and code, or the whole link. "
+               "The link can also be pasted on the web settings page (Device page).");
 
   lv_obj_t* modbus = detail_box();
   s_source_detail[1] = modbus;
@@ -1332,6 +1355,12 @@ const char* KEYS_UPPER_URL[] = {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"
                                 "A", "S", "D", "F", "G", "H", "J", "K", "L", "\n",
                                 "Shift", "Z", "X", "C", "V", "B", "N", "M", "Del", "\n",
                                 "123", "/", ":", "space", ".", "-", "_", ""};
+// For a kiosk code: its digits, lower case and the dash it is grouped with, all
+// on one page. No Shift, since the server ignores case, and no other pages.
+const char* KEYS_CODE[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
+                           "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "\n",
+                           "a", "s", "d", "f", "g", "h", "j", "k", "l", "\n",
+                           "z", "x", "c", "v", "b", "n", "m", "-", "Del", ""};
 const char* KEYS_DIGITS[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
                              "-", "/", ":", ";", "(", ")", "$", "&", "@", "\"", "\n",
                              "#+=", ".", ",", "?", "!", "'", "_", "Del", "\n",
@@ -1353,6 +1382,9 @@ void apply_keyboard_mode() {
                      : s_keyboard_mode == KeyboardMode::Symbols ? KEYS_SYMBOLS
                      : url ? KEYS_LOWER_URL
                            : KEYS_LOWER;
+  if (s_entry_kind == EntryKind::KioskCode) {
+    map = KEYS_CODE;
+  }
   lv_btnmatrix_set_map(s_keyboard, map);
   uint16_t id = 0;
   for (const char** key = map; (*key)[0] != '\0'; ++key) {
@@ -1392,14 +1424,18 @@ void refresh_password() {
   button_set_text(s_password_show, s_password_visible ? "Hide" : "Show");
 }
 
-// The same keyboard screen types a link, an address or a token. Those are long,
-// so the field wraps in a smaller font instead of trailing off.
+// The same keyboard screen types a link, an address, a code or a token. Those are
+// long, so the field wraps in a smaller font instead of trailing off.
 void refresh_entry() {
-  static const char* const TITLES[] = {"", "Enrolment link", "Home Assistant address",
-                                       "Home Assistant token"};
+  static const char* const TITLES[] = {
+      "",           "Enrolment link",         "Server address",
+      "Kiosk code", "Home Assistant address", "Home Assistant token",
+  };
   static const char* const HINTS[] = {
       "",
       "The link from SigenStor Display's Admin page, starting https://",
+      "The server from SigenStor Display's Admin page, starting https://",
+      "The code from SigenStor Display's Admin page, with or without its dashes",
       "For example http://homeassistant.local:8123",
       "A long-lived access token, from your profile page in Home Assistant",
   };
@@ -1478,12 +1514,23 @@ void refresh_picker() {
   }
 }
 
+// What was typed may be a password, code or token: do not leave it sitting in a
+// buffer. Nor in the field's own copy, which LVGL would free without clearing.
+void wipe_typed() {
+  memset(s_password, 0, sizeof(s_password));
+  char* shown = lv_label_get_text(s_password_field);
+  memset(shown, 0, strlen(shown));
+  refresh_password();
+}
+
 void save_entry() {
   const SheetActions& actions = s_actions;
   bool (*save)(const char*, char*, size_t) =
-      s_entry_kind == EntryKind::EnrolmentLink ? actions.set_enrolment_link
-      : s_entry_kind == EntryKind::HaAddress   ? actions.set_ha_address
-                                               : actions.set_ha_token;
+      s_entry_kind == EntryKind::EnrolmentLink   ? actions.set_enrolment_link
+      : s_entry_kind == EntryKind::ServerAddress ? actions.set_server_address
+      : s_entry_kind == EntryKind::KioskCode     ? actions.set_kiosk_code
+      : s_entry_kind == EntryKind::HaAddress     ? actions.set_ha_address
+                                                 : actions.set_ha_token;
   s_entry_error[0] = '\0';
   if (save != nullptr && !save(s_password, s_entry_error, sizeof(s_entry_error))) {
     if (s_entry_error[0] == '\0') {
@@ -1492,8 +1539,7 @@ void save_entry() {
     refresh_join();
     return;
   }
-  // A token is a credential: do not leave it sitting in a buffer.
-  memset(s_password, 0, sizeof(s_password));
+  wipe_typed();
   lv_obj_add_flag(s_join_panel, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -1648,6 +1694,7 @@ void build_join_panel(lv_obj_t* parent) {
       cancel,
       [](lv_event_t*) {
         s_join_requested = false;
+        wipe_typed();
         lv_obj_add_flag(s_join_panel, LV_OBJ_FLAG_HIDDEN);
       },
       LV_EVENT_CLICKED, nullptr);
@@ -1996,14 +2043,20 @@ void settings_sheet_type_key(int key) {
 }
 
 void settings_sheet_show_entry(SheetEntry entry) {
-  s_entry_kind = entry == SheetEntry::EnrolmentLink ? EntryKind::EnrolmentLink
-                 : entry == SheetEntry::HaAddress   ? EntryKind::HaAddress
-                                                    : EntryKind::HaToken;
+  s_entry_kind = entry == SheetEntry::EnrolmentLink   ? EntryKind::EnrolmentLink
+                 : entry == SheetEntry::ServerAddress ? EntryKind::ServerAddress
+                 : entry == SheetEntry::KioskCode     ? EntryKind::KioskCode
+                 : entry == SheetEntry::HaAddress     ? EntryKind::HaAddress
+                                                      : EntryKind::HaToken;
   s_entry_error[0] = '\0';
   memset(s_password, 0, sizeof(s_password));
-  // An address starts with what every address starts with; the rest start empty.
+  // An address starts with what it usually does: http:// for Home Assistant on
+  // the LAN, https:// for the server, as its Admin page gives it. The rest start
+  // empty.
   if (s_entry_kind == EntryKind::HaAddress) {
     snprintf(s_password, sizeof(s_password), "http://");
+  } else if (s_entry_kind == EntryKind::ServerAddress) {
+    snprintf(s_password, sizeof(s_password), "https://");
   }
   // Long and typed by eye, so shown while typed. Show/Hide still works.
   s_password_visible = true;

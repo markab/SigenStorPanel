@@ -31,6 +31,7 @@
 #include "enrol_url.h"
 #include "forecast_store.h"
 #include "history.h"
+#include "kiosk_code.h"
 #include "live_source.h"
 #include "sim_backend.h"
 #include "snapshot.h"
@@ -509,6 +510,26 @@ void live_link_save(const std::string& link) {
 }
 
 SheetData s_sheet_data;
+// The sim's settings_set_server(): the server and its code, as last saved.
+std::string s_sheet_base;
+std::string s_sheet_code;
+
+// As settings_token_masked() shows a code: its last four characters.
+void show_sheet_server() {
+  const size_t at = s_sheet_base.find("://");
+  snprintf(s_sheet_data.server_host, sizeof(s_sheet_data.server_host), "%s",
+           at == std::string::npos ? s_sheet_base.c_str() : s_sheet_base.c_str() + at + 3);
+  const size_t length = s_sheet_code.size();
+  if (length == 0) {
+    s_sheet_data.server_code[0] = '\0';
+  } else if (length <= 4) {
+    snprintf(s_sheet_data.server_code, sizeof(s_sheet_data.server_code), "****");
+  } else {
+    snprintf(s_sheet_data.server_code, sizeof(s_sheet_data.server_code), "...%s",
+             s_sheet_code.c_str() + length - 4);
+  }
+  settings_sheet_set_data(s_sheet_data);
+}
 
 // Switches the screens from the fixtures to `base`. The fixture's made-up day
 // goes first, so the real day series is not drawn on top of it.
@@ -532,10 +553,9 @@ bool start_live(const std::string& base, const std::string& token) {
   sim_backend_set_title("SigenStorPanel sim - live - connecting");
 
   s_sheet_data.source = DataSource::Server;
-  s_sheet_data.server_set = true;
-  snprintf(s_sheet_data.server_host, sizeof(s_sheet_data.server_host), "%s",
-           s_live_host.c_str());
-  settings_sheet_set_data(s_sheet_data);
+  s_sheet_base = base;
+  s_sheet_code = token;
+  show_sheet_server();
   return true;
 }
 
@@ -546,6 +566,28 @@ void stop_live() {
   s_live = false;
   ui_set_overlay(nullptr, nullptr, nullptr);
   show_current_fixture();
+}
+
+// The bridge's save_server(): a blank code keeps the one saved, and a code is
+// tidied as the device tidies it. Live as soon as there are both.
+bool save_sheet_server(const char* base, const char* code, char* error, size_t size) {
+  char tidy[KIOSK_CODE_SIZE] = {};
+  if (code[0] != '\0' && !kiosk_code_tidy(code, tidy, sizeof(tidy))) {
+    snprintf(error, size, "Not a kiosk code. A code is 20 letters and digits");
+    return false;
+  }
+  s_sheet_base = base;
+  if (tidy[0] != '\0') {
+    s_sheet_code = tidy;
+  }
+  printf("[sim] server %s%s\n", base, s_sheet_code.empty() ? ", no code yet" : "");
+  show_sheet_server();
+  // The screen-shot pass types made-up details; only a person's go live.
+  if (s_shot_pass || s_sheet_code.empty()) {
+    return true;
+  }
+  live_link_save(s_sheet_base + "/kiosk-enroll?token=" + s_sheet_code);
+  return start_live(s_sheet_base, s_sheet_code);
 }
 
 // ---------------------------------------------------------- settings sheet ---
@@ -638,8 +680,9 @@ void seed_sheet() {
   settings_sheet_set_wifi(s_sheet_wifi);
 
   s_sheet_data.source = s_with_detailed_screens ? DataSource::Server : DataSource::Modbus;
-  s_sheet_data.server_set = true;
-  snprintf(s_sheet_data.server_host, sizeof(s_sheet_data.server_host), "sigen.example.com");
+  s_sheet_base = "https://sigen.example.com";
+  s_sheet_code = "k7mq4xrp9tbzh2wdc8nf";
+  show_sheet_server();
   snprintf(s_sheet_data.modbus_host, sizeof(s_sheet_data.modbus_host), "192.168.1.20");
   s_sheet_data.modbus_devices[0] = {1, SheetDeviceKind::InverterWithDc};
   s_sheet_data.modbus_devices[1] = {2, SheetDeviceKind::Inverter};
@@ -771,9 +814,9 @@ SheetActions sim_sheet_actions() {
     if (s_live) {
       stop_live();
     }
-    s_sheet_data.server_set = false;
-    s_sheet_data.server_host[0] = '\0';
-    settings_sheet_set_data(s_sheet_data);
+    s_sheet_base.clear();
+    s_sheet_code.clear();
+    show_sheet_server();
   };
   actions.set_modbus_host = [](const char* host) {
     printf("[sim] modbus host %s\n", host);
@@ -791,18 +834,27 @@ SheetActions sim_sheet_actions() {
       snprintf(error, size, "That link has no token in it");
       return false;
     }
-    printf("[sim] enrolment link for %s\n", parsed.base);
-    // The screen-shot pass types a made-up link; only a person's goes live.
-    if (s_shot_pass) {
-      s_sheet_data.server_set = true;
-      const char* host = strstr(parsed.base, "://");
-      snprintf(s_sheet_data.server_host, sizeof(s_sheet_data.server_host), "%s",
-               host != nullptr ? host + 3 : parsed.base);
-      settings_sheet_set_data(s_sheet_data);
-      return true;
+    return save_sheet_server(parsed.base, parsed.token, error, size);
+  };
+  actions.set_server_address = [](const char* url, char* error, size_t size) {
+    const EnrolUrl parsed = enrol_url_parse(url);
+    if (!parsed.ok) {
+      snprintf(error, size, "It should start https:// or http://");
+      return false;
     }
-    live_link_save(link);
-    return start_live(parsed.base, parsed.token);
+    return save_sheet_server(parsed.base, parsed.token, error, size);
+  };
+  actions.set_kiosk_code = [](const char* code, char* error, size_t size) {
+    if (s_sheet_base.empty()) {
+      snprintf(error, size, "Set the server first");
+      return false;
+    }
+    if (code[0] == '\0') {
+      snprintf(error, size, "Type the code first");
+      return false;
+    }
+    // A copy: save_sheet_server() assigns s_sheet_base from what it is given.
+    return save_sheet_server(std::string(s_sheet_base).c_str(), code, error, size);
   };
   actions.set_ha_address = [](const char* url, char* error, size_t size) {
     const EnrolUrl parsed = enrol_url_parse(url);
@@ -1168,19 +1220,53 @@ int run_sheet_shots(const std::string& directory) {
   // time, a typo and its backspace, then return to save.
   settings_sheet_show_entry(SheetEntry::EnrolmentLink);
   check(settings_sheet_typing(), "link entry takes the keyboard");
-  for (const char* c = "https://sigen.example.com/kiosk-enroll?token=Qm9vdHN0cmFwVG9rZW4x"; *c;
-       ++c) {
+  for (const char* c = "https://sigen.example.com/kiosk-enroll?token=k7mq-4xrp-9tbz-h2wd-c8nfx";
+       *c; ++c) {
     settings_sheet_type_key(*c);
   }
   settings_sheet_type_key('\b');
   run_frames(50);
   failures += save_shot(directory, "sheet_4d_enter_link") ? 0 : 1;
-  s_sheet_data.server_set = false;
+  const auto forget = []() {
+    s_sheet_base.clear();
+    s_sheet_code.clear();
+    show_sheet_server();
+  };
+  forget();
   settings_sheet_type_key('\r');
   run_frames(50);
-  check(!settings_sheet_typing() && s_sheet_data.server_set &&
-            strcmp(s_sheet_data.server_host, "sigen.example.com") == 0,
+  check(!settings_sheet_typing() && strcmp(s_sheet_data.server_host, "sigen.example.com") == 0 &&
+            s_sheet_code == "k7mq4xrp9tbzh2wdc8nf",
         "return saves the typed link");
+
+  // The link's two halves instead: the server, then its code read off the Admin
+  // page in capitals and spaced groups, one character short at first.
+  forget();
+  settings_sheet_open(SheetPage::Data, false);
+  settings_sheet_show_entry(SheetEntry::ServerAddress);
+  for (const char* c = "sigen.example.com"; *c; ++c) {
+    settings_sheet_type_key(*c);
+  }
+  settings_sheet_type_key('\r');
+  run_frames(50);
+  check(!settings_sheet_typing() && s_sheet_base == "https://sigen.example.com" &&
+            s_sheet_data.server_code[0] == '\0',
+        "the server saves without a code");
+  failures += save_shot(directory, "sheet_4g_data_no_code") ? 0 : 1;
+  settings_sheet_show_entry(SheetEntry::KioskCode);
+  for (const char* c = "K7MQ 4XRP 9TBZ H2WD C8N"; *c; ++c) {
+    settings_sheet_type_key(*c);
+  }
+  settings_sheet_type_key('\r');
+  check(settings_sheet_typing() && s_sheet_code.empty(), "a short code is refused");
+  settings_sheet_type_key('F');
+  run_frames(50);
+  failures += save_shot(directory, "sheet_4h_enter_code") ? 0 : 1;
+  settings_sheet_type_key('\r');
+  run_frames(50);
+  check(!settings_sheet_typing() && s_sheet_code == "k7mq4xrp9tbzh2wdc8nf" &&
+            strcmp(s_sheet_data.server_code, "...c8nf") == 0,
+        "a code saves tidied, and shows masked");
   settings_sheet_close(false);
 
   const SheetData before_plant = s_sheet_data;

@@ -8,6 +8,7 @@
 #include "data_source.h"
 #include "display.h"
 #include "enrol_url.h"
+#include "kiosk_code.h"
 #include "modbus_api.h"
 #include "net.h"
 #include "poller.h"
@@ -65,8 +66,10 @@ void push_data() {
   const Settings& s = settings_get();
   SheetData data;
   data.source = s.source;
-  data.server_set = !s.base_url.isEmpty() && !s.token.isEmpty();
   copy_host(data.server_host, sizeof(data.server_host), s.base_url);
+  if (!s.token.isEmpty()) {
+    snprintf(data.server_code, sizeof(data.server_code), "%s", settings_token_masked().c_str());
+  }
   snprintf(data.modbus_host, sizeof(data.modbus_host), "%s", s.modbus_host.c_str());
   data.modbus_plant_address = s.modbus_plant_address;
   for (size_t i = 0; i < SETTINGS_MAX_MODBUS_DEVICES && i < SHEET_MAX_MODBUS; ++i) {
@@ -80,6 +83,24 @@ void push_data() {
   copy_host(data.ha_host, sizeof(data.ha_host), s.ha_base_url);
   data.poll_s = s.poll_interval_s;
   settings_sheet_set_data(data);
+}
+
+// The server, with the code that goes with it. A blank code keeps the stored
+// one. However it was typed, a code is saved in the one spelling the server
+// hashes (kiosk_code.h).
+bool save_server(const String& base, const char* code, char* error, size_t size) {
+  char tidy[KIOSK_CODE_SIZE] = {};
+  if (code[0] != '\0' && !kiosk_code_tidy(code, tidy, sizeof(tidy))) {
+    snprintf(error, size, "Not a kiosk code. A code is 20 letters and digits");
+    return false;
+  }
+  if (!settings_set_server(base, String(tidy))) {
+    snprintf(error, size, "Could not save it");
+    return false;
+  }
+  poller_wake();
+  push_data();
+  return true;
 }
 
 void push_solar() {
@@ -304,13 +325,27 @@ SheetActions actions() {
       snprintf(error, size, "That link has no token in it");
       return false;
     }
-    if (!settings_set_server(String(parsed.base), String(parsed.token))) {
-      snprintf(error, size, "Could not save it");
+    return save_server(String(parsed.base), parsed.token, error, size);
+  };
+  // A whole link typed as the address is taken as one.
+  a.set_server_address = [](const char* url, char* error, size_t size) {
+    const EnrolUrl parsed = enrol_url_parse(url);
+    if (!parsed.ok) {
+      snprintf(error, size, "It should start https:// or http://");
       return false;
     }
-    poller_wake();
-    push_data();
-    return true;
+    return save_server(String(parsed.base), parsed.token, error, size);
+  };
+  a.set_kiosk_code = [](const char* code, char* error, size_t size) {
+    if (settings_get().base_url.isEmpty()) {
+      snprintf(error, size, "Set the server first");
+      return false;
+    }
+    if (code[0] == '\0') {
+      snprintf(error, size, "Type the code first");
+      return false;
+    }
+    return save_server(String(settings_get().base_url), code, error, size);
   };
   a.set_ha_address = [](const char* url, char* error, size_t size) {
     const EnrolUrl parsed = enrol_url_parse(url);

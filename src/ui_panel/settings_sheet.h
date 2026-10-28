@@ -92,8 +92,9 @@ struct SheetModbusDevice {
 
 struct SheetData {
   DataSource source = DataSource::Server;
-  bool server_set = false;
+  // Set separately, so either can be there without the other. Empty: not set.
   char server_host[SHEET_TEXT] = {};
+  char server_code[12] = {};  // masked, "...c8nf": never the whole code
   char modbus_host[40] = {};
   uint8_t modbus_plant_address = 247;
   SheetModbusDevice modbus_devices[SHEET_MAX_MODBUS];
@@ -149,6 +150,8 @@ struct SheetSolar {
 
 enum class SheetEntry : uint8_t {
   EnrolmentLink,
+  ServerAddress,
+  KioskCode,
   HaAddress,
   HaToken,
 };
@@ -204,6 +207,9 @@ struct SheetActions {
   // Typed on the panel's keyboard. Return false, with a reason in `error`, to
   // keep the entry screen up (a link with no token in it, say).
   bool (*set_enrolment_link)(const char* link, char* error, size_t error_size) = nullptr;
+  // The link's two halves, as the Admin page also shows them. Each keeps the other.
+  bool (*set_server_address)(const char* url, char* error, size_t error_size) = nullptr;
+  bool (*set_kiosk_code)(const char* code, char* error, size_t error_size) = nullptr;
   bool (*set_ha_address)(const char* url, char* error, size_t error_size) = nullptr;
   bool (*set_ha_token)(const char* token, char* error, size_t error_size) = nullptr;
   void (*set_modbus_devices)(uint8_t plant_address, const SheetModbusDevice* devices,
@@ -250,7 +256,7 @@ void settings_sheet_show_picker();
 // The password screen for a network, as if it had been picked. For the sim.
 void settings_sheet_show_password(const char* ssid, bool secure);
 
-// Opens the keyboard for a link, address or token, as its button would. For the sim.
+// Opens the keyboard for a link, address, code or token, as its button would. For the sim.
 void settings_sheet_show_entry(SheetEntry entry);
 // The Modbus device editor, and one solar array's editor. For the sim.
 void settings_sheet_show_devices();
@@ -260,8 +266,8 @@ void settings_sheet_show_array(int index);
 void settings_sheet_type_password(const char* text);
 void settings_sheet_press_join();
 
-// The sim's physical keyboard: whether a password, link or token is being typed,
-// and one key into it. Printable ASCII appends, '\b' deletes, '\r' presses
+// The sim's physical keyboard: whether a password, link, code or token is being
+// typed, and one key into it. Printable ASCII appends, '\b' deletes, '\r' presses
 // Join or Save.
 bool settings_sheet_typing();
 void settings_sheet_type_key(int key);

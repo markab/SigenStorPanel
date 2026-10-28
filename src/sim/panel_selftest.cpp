@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "kiosk_code.h"
 #include "presence_parse.h"
 
 namespace {
@@ -75,6 +76,46 @@ void test_presence_frames() {
         "text after a frame is still read");
 }
 
+// True when `typed` tidies to `expected`, or is refused when that is null.
+bool tidies_to(const char* typed, const char* expected) {
+  char out[KIOSK_CODE_SIZE] = "junk";
+  const bool ok = kiosk_code_tidy(typed, out, sizeof(out));
+  if (expected == nullptr) {
+    return !ok && out[0] == '\0';
+  }
+  return ok && strcmp(out, expected) == 0;
+}
+
+void test_kiosk_code() {
+  printf("kiosk code\n");
+  const char* const tidy = "k7mq4xrp9tbzh2wdc8nf";
+  check(tidies_to("k7mq-4xrp-9tbz-h2wd-c8nf", tidy), "the dashes come out");
+  check(tidies_to(tidy, tidy), "an undashed code is kept");
+  check(tidies_to("  K7MQ 4XRP\t9TBZ-H2WD c8nf\n", tidy), "case and whitespace go");
+  check(tidies_to("k7mq-4xrp-9tbz-h2wd-c8nO", "k7mq4xrp9tbzh2wdc8n0"), "o is read as 0");
+  check(tidies_to("k7mq-4xrp-9tbz-h2wd-cIlf", "k7mq4xrp9tbzh2wdc11f"), "i and l are read as 1");
+  check(tidies_to("k7mq-4xrp-9tbz-h2wd-c8n", nullptr), "19 characters is refused");
+  check(tidies_to("k7mq-4xrp-9tbz-h2wd-c8nfx", nullptr), "21 characters is refused");
+  check(tidies_to("k7mq-4xrp-9tbz-h2wd-c8nu", nullptr), "u is in no code");
+  check(tidies_to("k7mq-4xrp-9tbz-h2wd-c8n=", nullptr), "punctuation is refused");
+  check(tidies_to("", nullptr) && tidies_to(" \t", nullptr) && tidies_to(nullptr, nullptr),
+        "nothing is refused");
+
+  // Before v0.38: 43 characters of base64url, matched exactly as issued.
+  const char* const old = "Qm9vdHN0cmFwVG9rZW4x_Ym9vdHN0cmFwLXRva2Vu-x";
+  check(strlen(old) == 43 && tidies_to(old, old), "an older token keeps its case");
+  check(tidies_to(" Qm9vdHN0cmFwVG9rZW4x_Ym9vdHN0cmFwLXRva2Vu-x\r\n", old),
+        "an older token loses its whitespace");
+  check(tidies_to("Qm9vdHN0cmFwVG9rZW4x_Ym9vdHN0cmFwLXRva2Vu-", nullptr),
+        "42 characters is refused");
+  check(tidies_to("Qm9vdHN0cmFwVG9rZW4x+Ym9vdHN0cmFwLXRva2Vu-x", nullptr),
+        "plain base64 is refused");
+
+  char small[20];
+  check(!kiosk_code_tidy(tidy, small, sizeof(small)) && small[0] == '\0',
+        "a buffer too small is refused");
+}
+
 }  // namespace
 
 int run_panel_selftest() {
@@ -82,6 +123,7 @@ int run_panel_selftest() {
   s_failures = 0;
   test_presence_text();
   test_presence_frames();
+  test_kiosk_code();
   printf("\n%d panel checks, %d failed\n", s_checks, s_failures);
   return s_failures == 0 ? 0 : 1;
 }

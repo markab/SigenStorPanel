@@ -45,6 +45,15 @@ and, with Home Assistant, which forecast to use. The Data page's "Devices" opens
 Modbus device editor (plant address, four IDs and kinds). The web page remains the
 only place for Home Assistant entity mapping, and an alternative for the rest.
 
+**Update 2026-10-28: the server and its code are typed apart.** From v0.38,
+SigenStor Display issues kiosk codes of 20 lowercase letters and digits, shown as
+`k7mq-4xrp-9tbz-h2wd-c8nf`, and its Admin page gives a display unit the server and
+the code separately as well as in one link. The Data page's "Set server" and "Set
+code" take them, the code on a keyboard with a row of digits and a dash, so nothing
+needs the link's `?` and `=` from the symbol pages. However it is typed, the code is
+saved in the spelling the server hashes (`src/kiosk_code.h`). "Enter link" still
+takes the whole link.
+
 **Room sensor (optional).** With an mmWave sensor on the UART header, the Display
 page's "Off when empty for" (never, or 1 to 60 minutes; 5 by default) switches the
 backlight off once nobody has been seen and nobody has touched the panel for that
