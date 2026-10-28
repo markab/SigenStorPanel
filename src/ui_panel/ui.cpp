@@ -128,6 +128,8 @@ constexpr lv_coord_t CHIP_Y = 218;   // day chip just above the dots
 constexpr lv_coord_t DAY_ARROW_SIZE = 56;
 constexpr lv_coord_t DAY_ARROW_X = 40;
 constexpr lv_coord_t DAY_ARROW_Y = -28;
+constexpr lv_coord_t DAY_STROKE_LONG = 22;
+constexpr lv_coord_t DAY_STROKE_THICK = 4;
 constexpr uint32_t TOAST_MS = 1600;
 
 // The address the overlay's QR points at, kept so the code is re-encoded when
@@ -252,9 +254,22 @@ void set_arrow_hidden(lv_obj_t* arrow, bool hidden) {
   }
 }
 
-// A round button in a bottom corner. `delta` rides in the event's user data.
-lv_obj_t* day_arrow(lv_obj_t* parent, const char* glyph, lv_align_t corner, lv_coord_t x,
-                    int delta) {
+// One stroke of a + or -, centred in its button.
+void day_stroke(lv_obj_t* parent, lv_coord_t width, lv_coord_t height) {
+  lv_obj_t* stroke = lv_obj_create(parent);
+  lv_obj_remove_style_all(stroke);
+  lv_obj_set_size(stroke, width, height);
+  lv_obj_set_style_radius(stroke, height < width ? height / 2 : width / 2, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(stroke, lv_color_hex(PUCK_COLOUR_TEXT), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(stroke, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_clear_flag(stroke, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(stroke);
+}
+
+// A round button in a bottom corner: "-" back a day, "+" forward. Drawn as bars
+// rather than set in the font, whose hyphen is half the width of its plus and
+// sits low. `delta` rides in the event's user data.
+lv_obj_t* day_arrow(lv_obj_t* parent, lv_align_t corner, lv_coord_t x, int delta) {
   lv_obj_t* arrow = lv_obj_create(parent);
   lv_obj_remove_style_all(arrow);
   lv_obj_set_size(arrow, DAY_ARROW_SIZE, DAY_ARROW_SIZE);
@@ -267,11 +282,10 @@ lv_obj_t* day_arrow(lv_obj_t* parent, const char* glyph, lv_align_t corner, lv_c
   // A wider target than the circle drawn: corners are easy to miss.
   lv_obj_set_ext_click_area(arrow, 16);
   lv_obj_add_flag(arrow, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_t* label = lv_label_create(arrow);
-  lv_obj_set_style_text_font(label, PUCK_FONT_LARGE, LV_PART_MAIN);
-  lv_obj_set_style_text_color(label, lv_color_hex(PUCK_COLOUR_TEXT), LV_PART_MAIN);
-  lv_label_set_text(label, glyph);
-  lv_obj_center(label);
+  day_stroke(arrow, DAY_STROKE_LONG, DAY_STROKE_THICK);
+  if (delta > 0) {
+    day_stroke(arrow, DAY_STROKE_THICK, DAY_STROKE_LONG);
+  }
   lv_obj_add_event_cb(
       arrow,
       [](lv_event_t* event) {
@@ -284,7 +298,7 @@ lv_obj_t* day_arrow(lv_obj_t* parent, const char* glyph, lv_align_t corner, lv_c
 }
 
 // The arrows show where the date does, and only where there is somewhere to go:
-// no forward on today, no back at the furthest day kept.
+// no "+" on today, no "-" at the furthest day kept.
 void refresh_day_arrows() {
   if (s_day_back == nullptr) {
     return;
@@ -490,8 +504,8 @@ lv_obj_t* ui_create(lv_obj_t* parent, const UiConfig& config) {
 
   // Day back and day forward, in the bottom corners beside the dots and inside
   // the edge bar: the bigger screen's answer to stepping days on the buttons.
-  s_day_back = day_arrow(parent, "<", LV_ALIGN_BOTTOM_LEFT, DAY_ARROW_X, -1);
-  s_day_forward = day_arrow(parent, ">", LV_ALIGN_BOTTOM_RIGHT, -DAY_ARROW_X, 1);
+  s_day_back = day_arrow(parent, LV_ALIGN_BOTTOM_LEFT, DAY_ARROW_X, -1);
+  s_day_forward = day_arrow(parent, LV_ALIGN_BOTTOM_RIGHT, -DAY_ARROW_X, 1);
 
   // The day indicator and the toast: siblings of the tileview like the dots, so
   // they stay put while the screens slide underneath.
