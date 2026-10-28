@@ -40,30 +40,36 @@ constexpr LegPos POS_EV = {-330, 115};
 constexpr LegPos POS_HOME = {330, 115};
 
 constexpr lv_coord_t LEG_BOX_WIDTH = 150;
-// Name, value and detail stacked: roughly this tall. Only used to stop the dots
-// short of the text.
-constexpr lv_coord_t LEG_BOX_HEIGHT = 80;
+// The text itself, centred in that box: the widest line ("kW generating") and the
+// three lines stacked. Only used to stop the dots short of it, so it is the text's
+// size rather than the box's, or the dots stop well before reaching the label.
+constexpr lv_coord_t LEG_TEXT_W = 116;
+constexpr lv_coord_t LEG_TEXT_H = 70;
 
-// The channel the flow dots travel down: from just outside the hub (FLOW_INNER)
-// to LEG_TEXT_GAP short of the edge of each leg's text box, along the line from
-// the centre to the leg's position. The box edge rather than a fixed distance
-// from its centre: the side legs are approached nearly side-on, where the box
-// is twice as wide as it is tall, and a fixed margin ran the dots into the text.
+// The channel the flow dots travel down: from just outside the plant figures (FLOW_INNER)
+// to LEG_TEXT_GAP short of the edge of each leg's text, along the line from the
+// centre to the leg's position. The text's edge rather than a fixed distance
+// from its centre: the side legs are approached nearly side-on, where the text is
+// wider than it is tall, and a fixed margin ran the dots into it.
 constexpr lv_coord_t FLOW_INNER = 56;
-constexpr lv_coord_t LEG_TEXT_GAP = 14;
+constexpr lv_coord_t LEG_TEXT_GAP = 6;
 // Dots are spaced along the path rather than fixed per leg, so the long side legs
 // read as a stream rather than two dots far apart. At least two, so a short leg
 // still shows a direction.
-constexpr lv_coord_t FLOW_DOT_SPACING = 34;
+constexpr lv_coord_t FLOW_DOT_SPACING = 52;
 constexpr int FLOW_DOTS_MIN = 2;
 constexpr int FLOW_DOTS = 10;  // the most any leg gets
 constexpr lv_coord_t FLOW_DOT_SIZE = 9;
+constexpr float FLOW_FADE = 0.2f;  // of the leg, at each end
 
-// Dot speed maps |kW| onto a travel period, so a heavy flow visibly runs faster
-// than a trickle. Above FLOW_SPEED_FULL_KW it stops getting quicker.
-constexpr uint32_t FLOW_PERIOD_SLOW_MS = 2400;
-constexpr uint32_t FLOW_PERIOD_FAST_MS = 700;
-constexpr float FLOW_SPEED_FULL_KW = 6.0f;
+// Dot speed in pixels a second, scaled straight from |kW|: a crawl near nothing,
+// quickest at FLOW_SPEED_FULL_KW, which no domestic leg goes past. A speed rather
+// than a time to cross the leg, so the long side legs and the short solar leg
+// move alike for the same power.
+constexpr float FLOW_SPEED_SLOW_PX_S = 30.0f;
+constexpr float FLOW_SPEED_FAST_PX_S = 400.0f;
+constexpr float FLOW_SPEED_FULL_KW = 20.0f;
+constexpr uint32_t FLOW_PERIOD_SLOW_MS = 4000;  // until the first reading
 // 20 fps rather than 30. On the rotated panel each dot move is a small rotated
 // flush; fewer of them per second leaves headroom for the poll and swipes.
 constexpr uint32_t FLOW_TICK_MS = 50;
@@ -88,6 +94,7 @@ struct Leg {
 
   FlowDirection direction = FLOW_IDLE;
   uint32_t period_ms = FLOW_PERIOD_SLOW_MS;
+  float length = 0.0f;  // of the dot path, in pixels
   float phase = 0.0f;
 };
 
@@ -99,13 +106,15 @@ lv_obj_t* s_soc_label = nullptr;
 lv_obj_t* s_device_battery = nullptr;
 Leg s_legs[LEG_COUNT];
 
-uint32_t period_for(float kw) {
+// How long one dot takes to run the leg at this power.
+uint32_t period_for(float kw, float length) {
   float fraction = fabsf(kw) / FLOW_SPEED_FULL_KW;
   if (fraction > 1.0f) {
     fraction = 1.0f;
   }
-  const float span = static_cast<float>(FLOW_PERIOD_SLOW_MS - FLOW_PERIOD_FAST_MS);
-  return static_cast<uint32_t>(FLOW_PERIOD_SLOW_MS - fraction * span);
+  const float speed =
+      FLOW_SPEED_SLOW_PX_S + fraction * (FLOW_SPEED_FAST_PX_S - FLOW_SPEED_SLOW_PX_S);
+  return static_cast<uint32_t>(1000.0f * length / speed);
 }
 
 lv_obj_t* make_label(lv_obj_t* parent, const lv_font_t* font, uint32_t colour) {
@@ -140,15 +149,15 @@ void build_leg(LegId id, const char* name, uint32_t colour, LegPos pos) {
   leg.detail = make_label(leg.box, PUCK_FONT_SMALL, PUCK_COLOUR_MUTED);
   lv_label_set_text(leg.detail, "");
 
-  // Dot path: from just outside the hub out toward this leg, along the unit
+  // Dot path: from just outside the plant figures out toward this leg, along the unit
   // vector from the centre to the leg's position.
   const float d = sqrtf(static_cast<float>(pos.dx) * pos.dx +
                         static_cast<float>(pos.dy) * pos.dy);
   const float ux = d > 0.0f ? pos.dx / d : 0.0f;
   const float uy = d > 0.0f ? pos.dy / d : 0.0f;
   // How far back from the box's centre the line crosses its edge.
-  const float to_edge_x = fabsf(ux) > 0.001f ? (LEG_BOX_WIDTH / 2.0f) / fabsf(ux) : 1e6f;
-  const float to_edge_y = fabsf(uy) > 0.001f ? (LEG_BOX_HEIGHT / 2.0f) / fabsf(uy) : 1e6f;
+  const float to_edge_x = fabsf(ux) > 0.001f ? (LEG_TEXT_W / 2.0f) / fabsf(ux) : 1e6f;
+  const float to_edge_y = fabsf(uy) > 0.001f ? (LEG_TEXT_H / 2.0f) / fabsf(uy) : 1e6f;
   const float outer = d - fminf(to_edge_x, to_edge_y) - static_cast<float>(LEG_TEXT_GAP);
   leg.inner.x = static_cast<lv_coord_t>(CENTRE_X + lroundf(ux * FLOW_INNER));
   leg.inner.y = static_cast<lv_coord_t>(CENTRE_Y + lroundf(uy * FLOW_INNER));
@@ -159,6 +168,7 @@ void build_leg(LegId id, const char* name, uint32_t colour, LegPos pos) {
                                 (leg.outer.x - leg.inner.x) +
                             static_cast<float>(leg.outer.y - leg.inner.y) *
                                 (leg.outer.y - leg.inner.y));
+  leg.length = length;
   leg.dot_count = static_cast<int>(lroundf(length / FLOW_DOT_SPACING));
   if (leg.dot_count < FLOW_DOTS_MIN) {
     leg.dot_count = FLOW_DOTS_MIN;
@@ -194,7 +204,13 @@ void place_dots(Leg& leg) {
         leg.inner.y + static_cast<lv_coord_t>((leg.outer.y - leg.inner.y) * travel);
     lv_obj_set_pos(leg.dots[i], x - FLOW_DOT_SIZE / 2, y - FLOW_DOT_SIZE / 2);
 
-    const lv_opa_t opacity = static_cast<lv_opa_t>(LV_OPA_COVER * sinf(t * 3.14159265f));
+    // Faded in and out over the first and last fifth of the leg only, so a dot is
+    // plainly visible right up to the label it is heading for.
+    float edge = (t < 0.5f ? t : 1.0f - t) / FLOW_FADE;
+    if (edge > 1.0f) {
+      edge = 1.0f;
+    }
+    const lv_opa_t opacity = static_cast<lv_opa_t>(LV_OPA_COVER * edge);
     lv_obj_set_style_bg_opa(leg.dots[i], opacity, LV_PART_MAIN);
   }
 }
@@ -240,7 +256,7 @@ void set_leg(LegId id, const MaybeFloat& power, FlowDirection direction, const c
 
   const bool flowing = moving && direction != FLOW_IDLE;
   leg.direction = flowing ? direction : FLOW_IDLE;
-  leg.period_ms = power.known ? period_for(power.value) : FLOW_PERIOD_SLOW_MS;
+  leg.period_ms = power.known ? period_for(power.value, leg.length) : FLOW_PERIOD_SLOW_MS;
 
   for (int i = 0; i < leg.dot_count; ++i) {
     if (flowing) {
@@ -298,14 +314,8 @@ lv_obj_t* screen_power_create(lv_obj_t* parent) {
   // State of charge traces the bezel, behind everything else.
   s_edge = edge_bar_create(s_root);
 
-  // The virtual plant node: inverter and gateway as one, a hairline disc.
-  lv_obj_t* hub = make_group(s_root);
-  lv_obj_set_size(hub, 104, 104);
-  lv_obj_center(hub);
-  lv_obj_set_style_radius(hub, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-  lv_obj_set_style_border_width(hub, 1, LV_PART_MAIN);
-  lv_obj_set_style_border_color(hub, lv_color_hex(PUCK_COLOUR_TRACK), LV_PART_MAIN);
-
+  // The virtual plant node, inverter and gateway as one: its figures alone, with no
+  // ring drawn round them.
   // PLANT above and kW below, held clear of the taller HERO value in the middle.
   lv_obj_t* plant_name = make_label(s_root, PUCK_FONT_SMALL, PUCK_COLOUR_MUTED);
   lv_label_set_text(plant_name, "PLANT");
