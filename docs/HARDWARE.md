@@ -182,10 +182,29 @@ can switch the backlight off when nobody is in the room. Without one, nothing ch
 |---|---|
 | Sensor | 3.0-3.6 V, about 50 mA; UART 115200 8N1 at 3.3 V; pins 3V3, GND, TX, RX, OT2 |
 | Range | wall-mounted: 8 m for movement, 6 m for micro-movement (breathing, typing) |
-| Connection | the board's UART socket, **J2**: a 4-pin HY2.0 (2.0 mm pitch, Grove-style) socket. 3.3 V out at up to 1 A |
-| Wiring | see the table below. OT2 not needed |
+| Connection | the **J7 IO breakout header** (2x12, 2.54 mm), GPIO2 and GPIO3, which the firmware uses as of 2026-10-28. The UART1 socket J2 also works with a pin change in the profile |
+| Wiring | see the tables below. OT2 not needed |
 
-J2's pins, from the V1.2 Eagle schematic's netlist (nets RXD1 and TXD1 go nowhere else):
+**J7, as the firmware is set up.** Four pins in a row down the header's odd side, so one
+4-way Dupont lead does it. Every GPIO on J7 goes to the header alone in the V1.2
+schematic, and the P4 routes its UART to any GPIO:
+
+| J7 pin | Net | Sensor pin |
+|---|---|---|
+| 5 | VDD_3V3 | **3V3** |
+| 7 | GND | **GND** |
+| 9 | IO2 on the silkscreen (panel receives) | **TX** |
+| 11 | IO3 on the silkscreen (panel sends) | **RX** |
+
+Avoid J7's even pins 2, 4 and 6, which are 5 V, and pin 17, GPIO25, one of the P4's USB
+pins. GPIO2 and 3 are also the chip's pin JTAG, unused here. J7's full pinout: 1, 3, 5
+3V3; 2, 4, 6 5V; 7, 8, 10, 21-24 GND; 9 GPIO2, 11 GPIO3, 13 GPIO4, 15 GPIO5, 17 GPIO25,
+19 GPIO49, 12 GPIO54, 14 GPIO53, 16 GPIO52, 18 GPIO51, 20 GPIO50.
+
+**J2, the alternative**, labelled UART1, beside the WiFi module: a 4-pin HY2.0 (2.0 mm
+pitch, Grove-style) socket. To use it, set `PUCK_PRESENCE_RX` to 48 and
+`PUCK_PRESENCE_TX` to 47 in `src/board_crowpanel_101.h`. Its pins, from the V1.2 Eagle
+schematic's netlist (nets RXD1 and TXD1 go nowhere else):
 
 | J2 pin | Net | P4 GPIO | Sensor pin |
 |---|---|---|---|
@@ -194,9 +213,12 @@ J2's pins, from the V1.2 Eagle schematic's netlist (nets RXD1 and TXD1 go nowher
 | 3 | VDD_3V3 | | **3V3** |
 | 4 | GND | | **GND** |
 
-TX and RX cross over: the sensor's TX goes to the panel's receive pin. Count pin 1
-from the end the board's silkscreen marks; if it is not marked, check with a meter
-that pin 3 reads 3.3 V before plugging the sensor in.
+TX and RX cross over on either header: the sensor's TX goes to the panel's receive
+pin. Before plugging the sensor in, check with a meter that the pin you take 3V3 from
+reads 3.3 V.
+
+**Not UART3 IN (J10).** That 4-pin XH2.54 socket's pin 3 is a 5 V *input* for powering
+the board, and its TX and RX do not reach the P4 directly.
 
 Why the UART and not OT2:
 - OT2 is a single high/low line, but the only free header with power is the UART one,

@@ -132,16 +132,23 @@ static constexpr int8_t PUCK_SDIO_C6_RESET = 32;
 
 // --------------------------------------------------------- presence sensor ---
 //
-// Optional: a Waveshare HMMD mmWave sensor on the UART1 header (labelled "UART"),
-// which gives 3.3 V at up to 1 A; the sensor wants 3.0-3.6 V at about 50 mA.
-//   sensor 3V3 -> 3V3, GND -> GND, TX -> GPIO48 (our RX), RX -> GPIO47 (our TX)
-// Its OT2 presence pin is not needed: presence comes over the UART.
-// The header is J2, a 4-pin HY2.0 (2.0 mm) socket. From the V1.2 schematic: pin 1
-// RXD1 = GPIO48, pin 2 TXD1 = GPIO47, pin 3 3V3, pin 4 GND, and nothing else on
-// the board uses either GPIO. (An Elecrow lesson drives an LED module plugged into
-// this socket from GPIO48; with nothing plugged in, the pin is free.)
-static constexpr int8_t PUCK_PRESENCE_RX = 48;
-static constexpr int8_t PUCK_PRESENCE_TX = 47;
+// Optional: a Waveshare HMMD mmWave sensor on the J7 IO breakout header (2x12,
+// 2.54 mm), whose pins are labelled by IO number on the board: sensor TX to IO2,
+// RX to IO3, plus 3V3 and GND. Four pins in a row down its odd side:
+//   J7 pin 5  3V3     -> sensor 3V3   (3.0-3.6 V, about 50 mA)
+//   J7 pin 7  GND     -> sensor GND
+//   J7 pin 9  GPIO2   -> sensor TX    (our RX)
+//   J7 pin 11 GPIO3   -> sensor RX    (our TX)
+// Its OT2 presence pin is not needed: presence comes over the UART, which the P4
+// routes to any GPIO. In the V1.2 schematic every GPIO on J7 goes to the header
+// alone. GPIO2 and 3 are also the chip's pin JTAG, which nothing here uses.
+// Avoid J7's even pins 2, 4 and 6 (5 V) and pin 17 (GPIO25, the P4's USB).
+//
+// The UART1 socket, J2 (HY2.0), is the other place: pin 1 RXD1 = GPIO48 (sensor
+// TX), pin 2 TXD1 = GPIO47 (sensor RX), pin 3 3V3, pin 4 GND. Set RX 48, TX 47 to
+// use it instead.
+static constexpr int8_t PUCK_PRESENCE_RX = 2;
+static constexpr int8_t PUCK_PRESENCE_TX = 3;
 static constexpr uint32_t PUCK_PRESENCE_BAUD = 115200;
 // The sensor reports about every 100 ms. Silence this long means it is not
 // there, or has stopped, and the panel stops acting on it.
