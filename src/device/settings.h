@@ -231,9 +231,10 @@ bool settings_set_screensaver(uint32_t rotate_s, uint32_t sweep_min);
 // as well as the settings page.
 bool settings_set_rotate_enabled(bool enabled);
 
-// Which screens exist and which auto-cycle, as PuckScreen bit masks. Takes
-// effect on the next boot, like `source` and `orientation`: the tileview's tiles
-// are built once.
+// Which screens exist and which auto-cycle, as PuckScreen bit masks. Which exist
+// takes effect on the next boot, like `source` and `orientation`: the tileview's
+// tiles are built once. Which auto-cycle the panel applies at once
+// (ui_panel/ui_live.h).
 bool settings_set_screens(uint8_t visible, uint8_t rotate);
 
 bool settings_set_check_updates(bool enabled);

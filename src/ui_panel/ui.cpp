@@ -18,6 +18,7 @@
 #include "screen_settings.h"
 #include "screen_solar.h"
 #include "settings_sheet.h"
+#include "ui_live.h"
 #include "theme.h"
 #include "ui_perf.h"
 
@@ -694,6 +695,10 @@ void ui_set_fine_rotation(int16_t tenths_of_a_degree) {
   lv_obj_set_style_transform_pivot_y(s_shift_root, PUCK_LCD_HEIGHT / 2, LV_PART_MAIN);
   lv_obj_set_style_transform_angle(s_shift_root, tenths_of_a_degree, LV_PART_MAIN);
   lv_obj_invalidate(s_shift_root);
+}
+
+void ui_set_rotate_mask(uint8_t mask) {
+  s_rotate_mask = mask;
 }
 
 void ui_set_rotate_interval(uint32_t seconds) {

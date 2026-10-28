@@ -195,6 +195,7 @@ struct SheetDevice {
   // A new name is saved but not yet in use: it is registered once, at boot.
   bool host_pending = false;
   char ip[16] = {};
+  char mac[18] = {};  // the WiFi MAC, for a router's DHCP reservation or allow list
   uint32_t uptime_s = 0;
   uint32_t internal_free = 0;
   uint32_t internal_largest = 0;  // the number TLS cares about

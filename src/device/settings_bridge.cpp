@@ -18,6 +18,7 @@
 #include "settings.h"
 #include "ui/ui.h"
 #include "ui_panel/settings_sheet.h"
+#include "ui_panel/ui_live.h"
 #include "updater.h"
 #include "updater_progress.h"
 
@@ -268,6 +269,8 @@ void push_device() {
   // Registered once, at boot, so a saved new name waits for a restart.
   device.host_pending = settings_get().hostname != net_name();
   snprintf(device.ip, sizeof(device.ip), "%s", net_ip().c_str());
+  // The C6's station MAC: the radio's, since the P4 has none of its own.
+  snprintf(device.mac, sizeof(device.mac), "%s", WiFi.macAddress().c_str());
   device.uptime_s = millis() / 1000;
   device.internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
   device.internal_largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
@@ -328,6 +331,7 @@ SheetActions actions() {
     settings_set_screens(screens.visible, screens.rotate);
     settings_set_screensaver(screens.rotate_s, settings_get().sweep_min);
     settings_set_rotate_enabled(screens.rotate_enabled);
+    ui_set_rotate_mask(screens.rotate);
     ui_set_rotate_interval(screens.rotate_s);
     ui_set_rotate_enabled(screens.rotate_enabled);
     push_screens();

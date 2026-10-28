@@ -147,6 +147,7 @@ lv_obj_t* s_update_text = nullptr;
 lv_obj_t* s_check_button = nullptr;
 lv_obj_t* s_install_button = nullptr;
 lv_obj_t* s_restart_button = nullptr;
+lv_obj_t* s_net_name = nullptr;
 lv_obj_t* s_web_address = nullptr;
 
 // Keypad, for the Modbus plant address.
@@ -540,12 +541,17 @@ void refresh_device() {
   set_disabled(s_check_button, s_device.update == SheetUpdate::Checking ||
                                    s_device.update == SheetUpdate::Installing);
 
+  // The MAC whether or not the panel is on a network: it is what a router's
+  // allow list or DHCP reservation needs before the panel can join.
+  char network[64];
+  snprintf(network, sizeof(network), "%s.local", s_device.host);
+  lv_label_set_text(s_net_name, network);
   if (s_device.ip[0] != '\0') {
-    snprintf(value, sizeof(value), "%s.local\n%s", s_device.host, s_device.ip);
+    snprintf(network, sizeof(network), "%s\nMAC %s", s_device.ip, s_device.mac);
   } else {
-    snprintf(value, sizeof(value), "Not on a network yet");
+    snprintf(network, sizeof(network), "Not on a network yet\nMAC %s", s_device.mac);
   }
-  lv_label_set_text(s_web_address, value);
+  lv_label_set_text(s_web_address, network);
 }
 
 void refresh_tabs() {
@@ -1276,12 +1282,17 @@ void build_device(lv_obj_t* tile) {
   lv_obj_t* network = card(column, 400, LV_SIZE_CONTENT);
   lv_obj_set_flex_grow(network, 1);
   caption(network, "ON THE NETWORK");
-  s_web_address = text(network, FONT_TEXT, COLOUR_ACCENT, "");
-  lv_obj_set_style_text_line_space(s_web_address, 6, LV_PART_MAIN);
-  lv_obj_t* rename = button(network, "Change name", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  // The name with its Rename button beside it, then the address and MAC: three
+  // lines and a button would not fit the card's height.
+  lv_obj_t* name_line = row(network);
+  s_net_name = text(name_line, FONT_TEXT, COLOUR_ACCENT, "");
+  lv_obj_t* rename = button(name_line, "Rename", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  lv_obj_set_style_pad_ver(rename, 6, LV_PART_MAIN);
   lv_obj_add_event_cb(
       rename, [](lv_event_t*) { settings_sheet_show_entry(SheetEntry::DeviceName); },
       LV_EVENT_CLICKED, nullptr);
+  s_web_address = text(network, FONT_TEXT, COLOUR_ACCENT, "");
+  lv_obj_set_style_text_line_space(s_web_address, 6, LV_PART_MAIN);
 }
 
 void build_header(lv_obj_t* parent) {

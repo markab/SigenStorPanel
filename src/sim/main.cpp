@@ -40,6 +40,7 @@
 #include "ui/ui.h"
 #include "ui_panel/banner.h"
 #include "ui_panel/settings_sheet.h"
+#include "ui_panel/ui_live.h"
 
 namespace {
 
@@ -747,6 +748,7 @@ void seed_sheet() {
 
   snprintf(s_sheet_device.firmware, sizeof(s_sheet_device.firmware), "%s", PUCK_FW_VERSION);
   snprintf(s_sheet_device.host, sizeof(s_sheet_device.host), "sigenstorpanel");
+  snprintf(s_sheet_device.mac, sizeof(s_sheet_device.mac), "E8:F6:0A:E1:D5:E0");
   // A Home Assistant set up most of the way: some roles chosen, the rest not.
   snprintf(s_sheet_ha_sensors.entity[0], HA_ENTITY_ID_MAX, "sensor.sigen_plant_pv_power");
   snprintf(s_sheet_ha_sensors.entity[1], HA_ENTITY_ID_MAX, "sensor.sigen_plant_grid_active_power");
@@ -787,6 +789,7 @@ SheetActions sim_sheet_actions() {
     printf("[sim] screens: visible 0x%02X cycle 0x%02X, cycle %s every %us\n", screens.visible,
            screens.rotate, screens.rotate_enabled ? "on" : "off",
            static_cast<unsigned>(screens.rotate_s));
+    ui_set_rotate_mask(screens.rotate);
     ui_set_rotate_enabled(screens.rotate_enabled);
     ui_set_rotate_interval(screens.rotate_s);
     settings_sheet_set_screens(s_sheet_screens);
