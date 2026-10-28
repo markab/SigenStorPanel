@@ -26,6 +26,7 @@
 #include "screen_window.h"
 #include "snapshot.h"
 #include "touch.h"
+#include "ui_panel/overlay_page.h"
 #include "ui/theme.h"
 #include "ui/ui.h"
 
@@ -96,14 +97,18 @@ void refresh_overlay(bool have_snapshot, const PollStatus& status) {
   // not an overlay is up, and both are empty strings until WiFi is joined.
   ui_set_address(host.c_str(), ip.c_str());
 
+  // Every message below can be fixed on the panel, and tapping it opens the
+  // settings page that does: WiFi for these first two, Data for the rest.
   switch (net_state()) {
     case NetState::NoNetworks:
       // The network picker opens over this by itself (settings_bridge.cpp); this
       // is what is left if someone closes it.
-      set_overlay("Set up WiFi", nullptr, "Swipe up to choose a network");
+      ui_set_overlay_page(SheetPage::Wifi);
+      set_overlay("Set up WiFi", nullptr, "Tap or swipe up to choose a network");
       return;
     case NetState::Starting:
     case NetState::Connecting:
+      ui_set_overlay_page(SheetPage::Wifi);
       set_overlay("Connecting to WiFi", nullptr, nullptr);
       return;
     case NetState::Connected:
@@ -111,6 +116,7 @@ void refresh_overlay(bool have_snapshot, const PollStatus& status) {
   }
 
   const DataSource source = settings_get().source;
+  ui_set_overlay_page(SheetPage::Data);
 
   // One address per line rather than run together with "or": these are things to
   // be typed, and a reader picking the one their phone can resolve should be able
@@ -132,23 +138,26 @@ void refresh_overlay(bool have_snapshot, const PollStatus& status) {
     // send them looking for something that does not exist.
     // The panel's own settings first; the web page is the alternative.
     if (source == DataSource::Modbus) {
-      detail = "Swipe up, then Data, to set the plant's IP address. Or scan this";
+      detail = "Tap to set the plant's IP address, or scan this";
     } else if (source == DataSource::HomeAssistant) {
-      detail = "Swipe up, then Data, to set the address and token. Or scan this";
+      detail = "Tap to set the address and token, or scan this";
     } else {
-      detail = "Swipe up, then Data, to enter the enrolment link. Or scan this";
+      detail = "Tap to enter the server and code, or scan this";
     }
     set_overlay("Not configured", where.c_str(), detail.c_str(), true);
     return;
   }
 
   // A revoked token is not a network fault and will never fix itself, so it says
-  // so rather than sitting on "waiting for data" forever.
+  // so rather than sitting on "waiting for data" forever. Fixed on the panel like
+  // any other setting: the web page is offered, not required.
   if (status.last_result == FetchResult::Unauthorised) {
     set_overlay(source == DataSource::HomeAssistant ? "HA token rejected" : "Re-enrol needed",
-                where.c_str(), source == DataSource::HomeAssistant
-                                     ? "Check the Home Assistant token at"
-                                     : "The kiosk token was revoked. Re-enrol at");
+                where.c_str(),
+                source == DataSource::HomeAssistant
+                    ? "Home Assistant no longer accepts this token.\nTap to enter a new one, or scan this"
+                    : "The server no longer accepts this panel's code.\nTap to enter a new one, or scan this",
+                true);
     return;
   }
 
@@ -167,6 +176,7 @@ void refresh_overlay(bool have_snapshot, const PollStatus& status) {
         detail = "Cannot reach the server\n";
       }
       detail += fetch_result_name(status.last_result);
+      detail += "\nTap to check the settings";
       set_overlay("No data", nullptr, detail.c_str());
     } else {
       set_overlay("Waiting for data", nullptr, nullptr);

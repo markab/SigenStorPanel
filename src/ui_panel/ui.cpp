@@ -7,6 +7,7 @@
 #include "board_config.h"
 #include "chart_band.h"
 #include "history.h"
+#include "overlay_page.h"
 #include "qr_block.h"
 #include "screen_battery.h"
 #include "screen_cost.h"
@@ -56,6 +57,8 @@ uint32_t s_rotate_seconds = 0;
 uint32_t s_sweep_minutes = 0;
 uint32_t s_day_return_seconds = 0;
 lv_obj_t* s_overlay = nullptr;
+// What tapping the message opens (overlay_page.h).
+SheetPage s_overlay_page = SheetPage::Data;
 lv_obj_t* s_overlay_title = nullptr;
 lv_obj_t* s_overlay_detail = nullptr;
 lv_obj_t* s_overlay_highlight = nullptr;
@@ -445,6 +448,18 @@ lv_obj_t* ui_create(lv_obj_t* parent, const UiConfig& config) {
   lv_obj_set_style_bg_opa(s_overlay, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
+  // Every message here is something the settings sheet can fix, so tapping it
+  // opens the sheet on the page that does. A swipe up still bubbles to the
+  // screen's gesture handler, which opens the sheet before this click arrives.
+  lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(
+      s_overlay,
+      [](lv_event_t*) {
+        if (!settings_sheet_is_open()) {
+          settings_sheet_open(s_overlay_page, true);
+        }
+      },
+      LV_EVENT_CLICKED, nullptr);
 
   s_overlay_title = lv_label_create(s_overlay);
   lv_obj_set_style_text_font(s_overlay_title, PUCK_FONT_LARGE, LV_PART_MAIN);
@@ -675,6 +690,10 @@ void ui_set_day_return(uint32_t seconds) {
 
 void ui_set_device_battery(bool show, int percent, bool charging) {
   screen_power_set_device_battery(show, percent, charging);
+}
+
+void ui_set_overlay_page(SheetPage page) {
+  s_overlay_page = page;
 }
 
 void ui_set_overlay(const char* title, const char* highlight, const char* detail, bool with_qr) {

@@ -37,6 +37,7 @@
 #include "snapshot.h"
 #include "ui/theme.h"
 #include "ui/ui.h"
+#include "ui_panel/overlay_page.h"
 #include "ui_panel/settings_sheet.h"
 
 namespace {
@@ -468,10 +469,15 @@ void show_live(const LiveUpdate& update) {
     sim_backend_set_title(title.c_str());
     // A rejected token never fixes itself, so it is said whatever came before.
     if (update.error == "http 401" || update.error == "http 403") {
+      ui_set_overlay_page(SheetPage::Data);
       ui_set_overlay("Re-enrol needed", s_live_host.c_str(),
-                     "The kiosk token was revoked. Re-enrol at");
+                     "The server no longer accepts this panel's code.\nTap to enter a new one, "
+                     "or scan this",
+                     true);
     } else if (!s_live_ever_ok) {
-      const std::string detail = "Cannot reach the server\n" + update.error;
+      ui_set_overlay_page(SheetPage::Data);
+      const std::string detail =
+          "Cannot reach the server\n" + update.error + "\nTap to check the settings";
       ui_set_overlay("No data", nullptr, detail.c_str());
     }
   }
@@ -1000,18 +1006,32 @@ void apply_view_visibility() {
 // The overlays are driven by device state — WiFi, provisioning, a revoked token
 // — none of which a fixture can express. Cycling them from the keyboard is the
 // only way to lay them out without flashing a deliberately broken device.
+// The same words and tap targets as refresh_overlay() in src/main.cpp.
+constexpr int OVERLAY_STATES = 4;  // three messages, then none
+
 void cycle_overlay() {
   static int which = 0;
-  which = (which + 1) % 3;
+  which = (which + 1) % OVERLAY_STATES;
   switch (which) {
     case 1:
+      ui_set_overlay_page(SheetPage::Data);
       ui_set_overlay("Not configured",
                      "http://sigenstorpanel.local/\n"
                      "http://192.168.1.100/",
-                     "Swipe up, then Data, to enter the enrolment link. Or scan this", true);
+                     "Tap to enter the server and code, or scan this", true);
       break;
     case 2:
-      ui_set_overlay("Set up WiFi", nullptr, "Swipe up to choose a network");
+      ui_set_overlay_page(SheetPage::Data);
+      ui_set_overlay("Re-enrol needed",
+                     "http://sigenstorpanel.local/\n"
+                     "http://192.168.1.100/",
+                     "The server no longer accepts this panel's code.\nTap to enter a new one, "
+                     "or scan this",
+                     true);
+      break;
+    case 3:
+      ui_set_overlay_page(SheetPage::Wifi);
+      ui_set_overlay("Set up WiFi", nullptr, "Tap or swipe up to choose a network");
       break;
     default:
       ui_set_overlay(nullptr, nullptr, nullptr);
@@ -1188,6 +1208,29 @@ int run_sheet_shots(const std::string& directory) {
   check(settings_sheet_is_open() && ui_current_screen() == 2,
         "opens from another screen and leaves it there");
   settings_sheet_close(false);
+
+  // A message covering the screens is a thing to fix in settings: a tap on it
+  // opens the page that fixes it, and a swipe up still works through it.
+  ui_set_overlay_page(SheetPage::Data);
+  ui_set_overlay("Re-enrol needed", nullptr, "Tap to enter a new one");
+  run_frames(100);
+  drag(512, 300, 512, 300);
+  check(settings_sheet_is_open() && settings_sheet_page() == SheetPage::Data,
+        "tapping a data message opens Data");
+  settings_sheet_close(false);
+  ui_set_overlay_page(SheetPage::Wifi);
+  ui_set_overlay("Set up WiFi", nullptr, "Tap or swipe up to choose a network");
+  run_frames(100);
+  drag(512, 300, 512, 300);
+  check(settings_sheet_is_open() && settings_sheet_page() == SheetPage::Wifi,
+        "tapping a WiFi message opens WiFi");
+  settings_sheet_close(false);
+  run_frames(100);
+  drag(512, 460, 512, 160);
+  check(settings_sheet_is_open(), "swipe up opens it through a message");
+  settings_sheet_close(false);
+  ui_set_overlay(nullptr, nullptr, nullptr);
+  run_frames(100);
 
   static const char* const NAMES[] = {"sheet_1_display", "sheet_2_screens", "sheet_3_wifi",
                                       "sheet_4_data",    "sheet_5_solar",   "sheet_6_device"};
@@ -1377,7 +1420,7 @@ int run_screenshot_pass(const std::string& output_directory) {
   // The overlays are not screens, but they are full-screen layouts with a QR
   // code and three lines of text to fit on a circle — exactly the thing this
   // pass exists to check. Once each, over whichever fixture is loaded.
-  for (int i = 1; i <= 2; ++i) {
+  for (int i = 1; i < OVERLAY_STATES; ++i) {
     cycle_overlay();
     lv_refr_now(nullptr);
     char path[512];
