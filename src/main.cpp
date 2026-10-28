@@ -27,6 +27,7 @@
 #include "snapshot.h"
 #include "touch.h"
 #include "ui_panel/banner.h"
+#include "ui_panel/ui_live.h"
 #include "ui/theme.h"
 #include "ui/ui.h"
 
@@ -348,6 +349,8 @@ void setup() {
         mapped(HaEntity::ForecastPercentage), mapped(HaEntity::ForecastPeak));
   }
   ui_create(lv_scr_act(), ui_config);
+  // The on-screen day arrows do what the buttons do.
+  ui_set_day_step(buttons_step_day);
   log_stage("ui");
   // Settings slide up over the screens, so built after them.
   settings_bridge_begin();

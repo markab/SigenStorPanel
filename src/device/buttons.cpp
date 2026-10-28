@@ -29,9 +29,15 @@ constexpr uint32_t LONG_HOLD_MS = 5000;
 ButtonGestureState s_boot{{DEBOUNCE_MS, HOLD_MS, LONG_HOLD_MS}};
 ButtonGestureState s_pwr{{PUCK_PWR_DEBOUNCE_MS, HOLD_MS, LONG_HOLD_MS}};
 
+void step_day(int delta) {
+  buttons_step_day(delta);
+}
+
+}  // namespace
+
 // Both day steps report what they did, because on a device with no keyboard the
 // only confirmation you get is the screen.
-void step_day(int delta) {
+void buttons_step_day(int delta) {
   if (!ui_day_screen()) {
     // Screen 1 is live and the settings screen shows an address; neither carries
     // a date, so stepping the day from them would move an indicator that is not
@@ -59,6 +65,8 @@ void step_day(int delta) {
   poller_wake();
   Serial.printf("[buttons] day offset %d\n", after);
 }
+
+namespace {
 
 // A gesture that arrives while the panel is asleep does one thing only: turn it
 // back on. Acting on it as well would mean pressing PWR to see the screen and

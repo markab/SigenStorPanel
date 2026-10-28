@@ -39,5 +39,10 @@
 
 void buttons_begin();
 
+// Steps the viewed day, -1 back and +1 forward, as the buttons do: refused on the
+// live screen and for sources with no past days, and wakes the poll task to fetch
+// the day. The on-screen day arrows call this too.
+void buttons_step_day(int delta);
+
 // Call from loop(). Reads both buttons and runs whatever they ask for.
 void buttons_loop();

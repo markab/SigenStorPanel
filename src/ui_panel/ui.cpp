@@ -67,6 +67,10 @@ lv_obj_t* s_overlay_detail = nullptr;
 lv_obj_t* s_overlay_highlight = nullptr;
 lv_obj_t* s_overlay_qr = nullptr;
 lv_obj_t* s_day_chip = nullptr;
+// Back a day and forward a day, in the bottom corners (ui_live.h).
+lv_obj_t* s_day_back = nullptr;
+lv_obj_t* s_day_forward = nullptr;
+UiDayStep s_day_step = nullptr;
 lv_obj_t* s_toast = nullptr;
 lv_timer_t* s_toast_timer = nullptr;
 bool s_rotate_enabled = true;
@@ -118,6 +122,12 @@ constexpr lv_coord_t BANNER_MAX_W = 880;
 // thing they are: persistent state. Sharing the top with the toast meant a
 // message blanked the very date it was answering about.
 constexpr lv_coord_t CHIP_Y = 218;   // day chip just above the dots
+
+// The day arrows: circles in the bottom corners, level with the page dots and
+// clear of the edge bar's rounded corners.
+constexpr lv_coord_t DAY_ARROW_SIZE = 56;
+constexpr lv_coord_t DAY_ARROW_X = 40;
+constexpr lv_coord_t DAY_ARROW_Y = -28;
 constexpr uint32_t TOAST_MS = 1600;
 
 // The address the overlay's QR points at, kept so the code is re-encoded when
@@ -234,7 +244,58 @@ bool day_indicator_wanted() {
   return screen != PUCK_SCREEN_POWER && screen != PUCK_SCREEN_SETTINGS;
 }
 
+void set_arrow_hidden(lv_obj_t* arrow, bool hidden) {
+  if (hidden) {
+    lv_obj_add_flag(arrow, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_clear_flag(arrow, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+// A round button in a bottom corner. `delta` rides in the event's user data.
+lv_obj_t* day_arrow(lv_obj_t* parent, const char* glyph, lv_align_t corner, lv_coord_t x,
+                    int delta) {
+  lv_obj_t* arrow = lv_obj_create(parent);
+  lv_obj_remove_style_all(arrow);
+  lv_obj_set_size(arrow, DAY_ARROW_SIZE, DAY_ARROW_SIZE);
+  lv_obj_align(arrow, corner, x, DAY_ARROW_Y);
+  lv_obj_set_style_radius(arrow, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(arrow, lv_color_hex(0x26262A), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(arrow, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(arrow, lv_color_hex(0x3A3A3C), LV_STATE_PRESSED);
+  lv_obj_clear_flag(arrow, LV_OBJ_FLAG_SCROLLABLE);
+  // A wider target than the circle drawn: corners are easy to miss.
+  lv_obj_set_ext_click_area(arrow, 16);
+  lv_obj_add_flag(arrow, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_t* label = lv_label_create(arrow);
+  lv_obj_set_style_text_font(label, PUCK_FONT_LARGE, LV_PART_MAIN);
+  lv_obj_set_style_text_color(label, lv_color_hex(PUCK_COLOUR_TEXT), LV_PART_MAIN);
+  lv_label_set_text(label, glyph);
+  lv_obj_center(label);
+  lv_obj_add_event_cb(
+      arrow,
+      [](lv_event_t* event) {
+        if (s_day_step != nullptr) {
+          s_day_step(static_cast<int>(reinterpret_cast<intptr_t>(lv_event_get_user_data(event))));
+        }
+      },
+      LV_EVENT_CLICKED, reinterpret_cast<void*>(static_cast<intptr_t>(delta)));
+  return arrow;
+}
+
+// The arrows show where the date does, and only where there is somewhere to go:
+// no forward on today, no back at the furthest day kept.
+void refresh_day_arrows() {
+  if (s_day_back == nullptr) {
+    return;
+  }
+  const bool shown = day_indicator_wanted() && s_day_stepping && s_last_ts != 0;
+  set_arrow_hidden(s_day_back, !shown || s_day_offset <= -PUCK_MAX_DAYS_BACK);
+  set_arrow_hidden(s_day_forward, !shown || s_day_offset >= 0);
+}
+
 void refresh_day_chip() {
+  refresh_day_arrows();
   if (s_day_chip == nullptr) {
     return;
   }
@@ -426,6 +487,11 @@ lv_obj_t* ui_create(lv_obj_t* parent, const UiConfig& config) {
     lv_obj_set_style_bg_color(dot, lv_color_hex(PUCK_COLOUR_TRACK), LV_PART_MAIN);
     s_dots[i] = dot;
   }
+
+  // Day back and day forward, in the bottom corners beside the dots and inside
+  // the edge bar: the bigger screen's answer to stepping days on the buttons.
+  s_day_back = day_arrow(parent, "<", LV_ALIGN_BOTTOM_LEFT, DAY_ARROW_X, -1);
+  s_day_forward = day_arrow(parent, ">", LV_ALIGN_BOTTOM_RIGHT, -DAY_ARROW_X, 1);
 
   // The day indicator and the toast: siblings of the tileview like the dots, so
   // they stay put while the screens slide underneath.
@@ -695,6 +761,10 @@ void ui_set_fine_rotation(int16_t tenths_of_a_degree) {
   lv_obj_set_style_transform_pivot_y(s_shift_root, PUCK_LCD_HEIGHT / 2, LV_PART_MAIN);
   lv_obj_set_style_transform_angle(s_shift_root, tenths_of_a_degree, LV_PART_MAIN);
   lv_obj_invalidate(s_shift_root);
+}
+
+void ui_set_day_step(UiDayStep step) {
+  s_day_step = step;
 }
 
 void ui_set_rotate_mask(uint8_t mask) {

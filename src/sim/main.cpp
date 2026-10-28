@@ -1054,6 +1054,8 @@ void build_debug_view() {
 
 // Builds both views once and swaps visibility, rather than tearing down and
 // rebuilding a widget tree on every keypress.
+void sim_step_day(int delta);
+
 void build_views() {
   lv_obj_t* screen = lv_scr_act();
   lv_obj_set_style_bg_color(screen, lv_color_hex(COLOUR_BACKGROUND), LV_PART_MAIN);
@@ -1062,6 +1064,7 @@ void build_views() {
   UiConfig config;
   config.with_detailed_screens = s_with_detailed_screens;
   ui_create(screen, config);
+  ui_set_day_step(sim_step_day);
 
   // A stand-in for what net_hostname()/net_ip() return on the device, so the
   // settings screen and its QR code render here rather than only on hardware.
@@ -1121,6 +1124,22 @@ void cycle_banner() {
   }
 }
 
+// The day keys and the on-screen day arrows. The device fetches a dated payload
+// for a past day; here the current fixture stands in for it, so the loaded state
+// is what gets drawn. Shift-stepping the keys shows the state before it arrives.
+void sim_step_day(int delta) {
+  if (s_live) {
+    printf("[sim] --live shows today only\n");
+    return;
+  }
+  ui_set_day_offset(ui_day_offset() + delta);
+  if (ui_day_offset() == 0) {
+    ui_clear_day();
+  } else {
+    show_current_fixture();
+  }
+}
+
 void handle_key(int key) {
   const size_t count = s_fixture_paths.size();
   if (key == 'o') {
@@ -1158,15 +1177,7 @@ void handle_key(int key) {
       printf("[sim] --live shows today only\n");
       return;
     }
-    ui_set_day_offset(ui_day_offset() + (key == '=' ? 1 : -1));
-    // The device fetches a dated payload for a past day; here the current fixture
-    // stands in for it, so the loaded state is what gets drawn. Shift-stepping
-    // shows the state before it arrives instead.
-    if (ui_day_offset() == 0) {
-      ui_clear_day();
-    } else {
-      show_current_fixture();
-    }
+    sim_step_day(key == '=' ? 1 : -1);
     return;
   }
   if (key == '_' || key == '+') {
@@ -1311,6 +1322,17 @@ int run_sheet_shots(const std::string& directory) {
   check(settings_sheet_is_open(), "swipe up opens it with a banner showing");
   settings_sheet_close(false);
   ui_set_banner(nullptr, BannerTone::Info, SheetPage::Data);
+  run_frames(100);
+
+  // The day arrows in the bottom corners: on a chart screen, back a day and then
+  // forward to today again.
+  ui_show_screen(1);
+  run_frames(200);
+  drag(68, 544, 68, 544);
+  check(ui_day_offset() == -1, "the left arrow steps back a day");
+  drag(956, 544, 956, 544);
+  check(ui_day_offset() == 0, "the right arrow steps forward to today");
+  ui_show_screen(0);
   run_frames(100);
 
   static const char* const NAMES[] = {"sheet_1_display", "sheet_2_screens", "sheet_3_wifi",
