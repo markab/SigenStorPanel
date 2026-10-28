@@ -7,6 +7,7 @@
 #include "power.h"
 
 #include "board_config.h"
+#include "net.h"
 
 void power_hold() {
   // No battery latch (PUCK_POWER_LATCH is -1).
@@ -31,5 +32,5 @@ void power_shutdown() {
   // There is no off: the P4 cannot deep-sleep waiting on an arbitrary GPIO, and
   // nothing can cut the rails but the switch. The nearest thing is a restart.
   Serial.println("[power] no soft off on this board, restarting instead");
-  ESP.restart();
+  net_restart("power off asked for");
 }

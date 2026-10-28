@@ -5,6 +5,9 @@
 #include <WiFi.h>
 #include <time.h>
 
+#include "esp_system.h"
+#include "esp_timer.h"
+
 #include <algorithm>
 #include <vector>
 
@@ -322,7 +325,12 @@ void net_begin() {
   // The saved list is the one store of credentials. Left on, the stack keeps its
   // own copy of the last network, which "forget" would not touch.
   WiFi.persistent(false);
+  // esp-hosted resets the C6 and brings up SDIO here, so this is where a broken
+  // link to the radio stops the boot. Timed so the log says how long it took.
+  const uint32_t radio_start = millis();
+  Serial.println("[net] starting the C6 (esp-hosted)");
   WiFi.mode(WIFI_STA);
+  Serial.printf("[net] C6 up in %lu ms\n", static_cast<unsigned long>(millis() - radio_start));
 
   // Read once and held: mDNS and the DHCP hostname are both registered a single
   // time, when the network comes up, so a change made later cannot apply until
@@ -421,12 +429,36 @@ void net_forget(const String& ssid) {
 }
 
 void net_forget_wifi() {
-  Serial.println("[net] forgetting every saved network, restarting");
+  Serial.println("[net] forgetting every saved network");
   s_saved.clear();
   store_saved();
   WiFi.disconnect(false, true);
-  delay(300);
+  net_restart("networks forgotten");
+}
+
+void net_restart(const char* why) {
+  Serial.printf("[net] restarting: %s. Shutting the C6 down first\n", why);
+  Serial.flush();
+
+  // The backstop, armed before anything that could block on the C6.
+  constexpr uint64_t FORCE_AFTER_US = 3000 * 1000;
+  esp_timer_create_args_t args = {};
+  args.callback = [](void*) { esp_restart(); };
+  args.name = "force_restart";
+  esp_timer_handle_t timer = nullptr;
+  if (esp_timer_create(&args, &timer) == ESP_OK) {
+    esp_timer_start_once(timer, FORCE_AFTER_US);
+  }
+
+  WiFi.disconnect(true);
+  // Deinitialises WiFi and then esp-hosted, which ends the SDIO session.
+  WiFi.mode(WIFI_OFF);
+  Serial.println("[net] C6 shut down");
+  Serial.flush();
+  delay(100);
   ESP.restart();
+  for (;;) {
+  }
 }
 
 void net_scan_start() {

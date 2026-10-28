@@ -3,6 +3,7 @@
 #include "board_config.h"
 #include "button_gesture.h"
 #include "display.h"
+#include "net.h"
 #include "poller.h"
 #include "settings.h"
 #include "power.h"
@@ -115,7 +116,7 @@ void handle_boot(ButtonGesture gesture) {
       Serial.println("[buttons] BOOT held long, restarting");
       ui_toast("RESTARTING");
       delay(400);
-      ESP.restart();
+      net_restart("BOOT held");
       break;
     default:
       break;

@@ -392,7 +392,7 @@ SheetActions actions() {
     Serial.println("[settings] restart from the settings sheet");
     ui_toast("RESTARTING");
     delay(300);
-    ESP.restart();
+    net_restart("Restart on the settings sheet");
   };
   return a;
 }

@@ -1196,7 +1196,7 @@ void handle_restart() {
             "few seconds.");
   s_server.client().flush();
   delay(200);
-  ESP.restart();
+  net_restart("Restart on the settings page");
 }
 
 void handle_forget_server() {

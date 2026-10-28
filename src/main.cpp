@@ -10,6 +10,8 @@
 #include <Wire.h>
 #include <lvgl.h>
 
+#include "esp_heap_caps.h"
+
 #include "board_config.h"
 #include "device/buttons.h"
 #include "device/net.h"
@@ -303,6 +305,17 @@ void refresh_device_battery() {
   ui_set_device_battery(on_battery, power.percent, power.charging);
 }
 
+// One line per boot stage: time since start, free internal RAM, its largest
+// block, and free DMA-capable RAM. esp-hosted takes its SDIO buffers from the
+// last of those, so a stage that eats into it shows up here before WiFi fails.
+void log_stage(const char* stage) {
+  Serial.printf("[boot] %-12s %6lu ms  internal %u B (largest %u)  dma %u B\n", stage,
+                static_cast<unsigned long>(millis()),
+                static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+                static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)),
+                static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_DMA)));
+}
+
 void log_boot_banner() {
   Serial.printf("\nSigenStorPanel %s\n", PUCK_FW_VERSION);
   Serial.printf("[chip] %s rev %d, %d MHz, flash %u MB, PSRAM %u MB, free heap %u B\n",
@@ -328,6 +341,7 @@ void setup() {
 
   // Before the panel: the rotation is applied as it is brought up.
   settings_begin();
+  log_stage("settings");
 
   lv_init();
   if (!display_begin(settings_get().orientation)) {
@@ -338,6 +352,7 @@ void setup() {
   }
   touch_begin();
   touch_set_orientation(settings_get().orientation);
+  log_stage("display");
 
   power_begin();
   buttons_begin();
@@ -362,6 +377,7 @@ void setup() {
         mapped(HaEntity::ForecastPercentage), mapped(HaEntity::ForecastPeak));
   }
   ui_create(lv_scr_act(), ui_config);
+  log_stage("ui");
   // Settings slide up over the screens, so built after them.
   settings_bridge_begin();
   // Sources without a dated API have no history to step into, so the buttons
@@ -375,6 +391,7 @@ void setup() {
   // Draw the first frame before WiFi so the screen is alive while the radio comes
   // up, rather than black for a couple of seconds.
   lv_timer_handler();
+  log_stage("first frame");
 
   // Neither applied while the drawing side is blocked: skewing touch to match a
   // rotation that is not on screen would put every tap 2.5 degrees out for no
@@ -386,7 +403,9 @@ void setup() {
   ui_set_day_return(PUCK_DAY_RETURN_S);
 
   net_begin();
+  log_stage("net");
   poller_begin();
+  log_stage("poller");
   updater_begin();
 
   Serial.println("[boot] ready");

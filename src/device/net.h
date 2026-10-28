@@ -70,6 +70,16 @@ void net_forget(const String& ssid);
 // Forgets every saved network and restarts, which brings up the network picker.
 void net_forget_wifi();
 
+// Restarts the panel, shutting the C6 down first. Every deliberate restart goes
+// through here rather than calling ESP.restart() directly.
+//
+// A restart of the P4 alone can leave the C6 mid-session, and the next boot then
+// cannot reach it over SDIO: esp-hosted restarts the P4 every 14 s until the power
+// is cut (docs/HARDWARE.md). Turning WiFi off first ends the session cleanly. A
+// C6 that is already unresponsive could hang that, so the restart is forced after
+// a few seconds regardless.
+[[noreturn]] void net_restart(const char* why);
+
 // A scan for the picker. Results replace the previous scan's, strongest first,
 // one entry per name.
 void net_scan_start();

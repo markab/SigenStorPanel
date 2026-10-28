@@ -269,7 +269,7 @@ void perform_apply() {
       s_progress = 100;
       Serial.println("[update] written, restarting into it");
       delay(RESTART_AFTER_MS);
-      ESP.restart();
+      net_restart("firmware updated");
       break;
     case HTTP_UPDATE_NO_UPDATES:
       status.state = UpdateState::UpToDate;
