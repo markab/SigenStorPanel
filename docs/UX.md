@@ -37,12 +37,14 @@ That drops WiFiManager, and with it the riskiest unknown after hosted WiFi itsel
 a soft AP and captive DNS running through the C6. Section 1 below is the plan as
 first written, kept for the reasoning.
 
-**Update 2026-10-28: every full-screen message is fixed on the panel.** "Not
-configured", "Re-enrol needed", "HA token rejected" and "No data" each say what to do
-on the panel first, and tapping the message opens the settings page that does it
-(Data, or WiFi for the WiFi messages; `src/ui_panel/overlay_page.h`). The web address
-and QR code stay on the message as the alternative, never the only way. A rejected
-code used to send you to the web page even though the Data page could take a new one.
+**Update 2026-10-28: problems are a banner, not a screen.** No WiFi, a data source
+not set up, a rejected code or token, and a source that cannot be reached each show
+as one line across the top of whichever screen is up, with the screens still visible
+beneath. Tapping it opens the settings page that fixes it: Data, or WiFi for the WiFi
+ones (`src/ui_panel/banner.h`). Grey while something is in progress, amber when
+something needs setting up, red when it is set up but refused or unreachable. The only
+full-screen message left is the boot splash. Nothing points at the web page: the aim
+is to remove the device's web interface altogether.
 
 **Update 2026-10-27, later: credentials are typed on the panel too.** The Data page
 has "Enter link" (server), "Set address" and "Set token" (Home Assistant), on a

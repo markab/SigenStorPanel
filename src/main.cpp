@@ -26,7 +26,7 @@
 #include "screen_window.h"
 #include "snapshot.h"
 #include "touch.h"
-#include "ui_panel/overlay_page.h"
+#include "ui_panel/banner.h"
 #include "ui/theme.h"
 #include "ui/ui.h"
 
@@ -40,153 +40,115 @@ constexpr uint32_t UI_REFRESH_MS = 250;
 // The PMIC is read over I2C, so at a human rate rather than per frame.
 constexpr uint32_t POWER_POLL_MS = 5000;
 
-// Two lines of storage for the overlay, so a message that has not changed is not
-// rewritten into LVGL 4 times a second.
-char s_overlay_title[48] = {};
-char s_overlay_highlight[96] = {};
-char s_overlay_detail[96] = {};
-bool s_overlay_qr = false;
+// The banner last shown, so one that has not changed is not rewritten into LVGL
+// four times a second, and the log only speaks on a change.
+char s_banner_text[112] = {};
+BannerTone s_banner_tone = BannerTone::Info;
 
-void set_overlay(const char* title, const char* highlight, const char* detail,
-                 bool with_qr = false) {
-  const bool same = strncmp(s_overlay_title, title == nullptr ? "" : title,
-                            sizeof(s_overlay_title)) == 0 &&
-                    strncmp(s_overlay_highlight, highlight == nullptr ? "" : highlight,
-                            sizeof(s_overlay_highlight)) == 0 &&
-                    strncmp(s_overlay_detail, detail == nullptr ? "" : detail,
-                            sizeof(s_overlay_detail)) == 0 &&
-                    with_qr == s_overlay_qr;
-  if (same) {
+void set_banner(const char* text, BannerTone tone = BannerTone::Info,
+                SheetPage page = SheetPage::Data) {
+  const char* shown = text == nullptr ? "" : text;
+  if (strncmp(s_banner_text, shown, sizeof(s_banner_text)) == 0 && tone == s_banner_tone) {
     return;
   }
-  snprintf(s_overlay_title, sizeof(s_overlay_title), "%s", title == nullptr ? "" : title);
-  snprintf(s_overlay_highlight, sizeof(s_overlay_highlight), "%s",
-           highlight == nullptr ? "" : highlight);
-  snprintf(s_overlay_detail, sizeof(s_overlay_detail), "%s", detail == nullptr ? "" : detail);
-  s_overlay_qr = with_qr;
-  ui_set_overlay(title, highlight, detail, with_qr);
+  snprintf(s_banner_text, sizeof(s_banner_text), "%s", shown);
+  s_banner_tone = tone;
+  ui_set_banner(text, tone, page);
 
-  // Logged because it is the one part of the UI you cannot ask the device about
-  // over the network, and it is exactly what you want to know when someone says
-  // the screen is covered. Only on a change, so it stays quiet — the dedupe
-  // above is what makes that true.
-  if (title == nullptr) {
-    Serial.println("[ui] overlay cleared");
+  // Logged because it is the one part of the UI you cannot ask the device about,
+  // and exactly what you want to know when someone says the panel shows a warning.
+  if (text == nullptr) {
+    Serial.println("[ui] banner cleared");
   } else {
-    Serial.printf("[ui] overlay: %s | %s\n", s_overlay_title, s_overlay_detail);
+    Serial.printf("[ui] banner: %s\n", s_banner_text);
   }
 }
 
-// Decides what, if anything, should cover the screens. Ordered by what the viewer
-// can actually do about it: no network, then nothing configured, then a revoked
-// token, then simply waiting.
-void refresh_overlay(bool have_snapshot, const PollStatus& status) {
-  static String detail;
+// Decides what, if anything, the banner says. Ordered by what the viewer can
+// actually do about it: no network, then nothing configured, then a rejected
+// credential, then simply waiting. Every one of them is fixed in the settings
+// sheet, and the banner opens the page that does it.
+void refresh_banner(bool have_snapshot, const PollStatus& status) {
+  // The boot splash goes the first time there is anything to say.
+  static bool splash_up = true;
+  if (splash_up) {
+    splash_up = false;
+    ui_set_overlay(nullptr, nullptr, nullptr);
+  }
 
-  // Both addresses, not whichever one happens to be available.
-  //
-  // The .local name is the nicer one to type, but mDNS resolution is not
-  // universal — Android has never supported it properly, and plenty of routers
-  // drop multicast between bands or VLANs. Showing only the name strands anyone
-  // whose phone cannot resolve it, on the one screen whose entire job is to tell
-  // them where to go. The IP always works, so it is always shown.
-  const String host = net_hostname();
-  const String ip = net_ip();
+  // Still fed to the UI: the settings screen shows the address whether or not a
+  // banner is up, and both are empty until WiFi is joined.
+  ui_set_address(net_hostname().c_str(), net_ip().c_str());
 
-  // Fed to the UI before the switch below: the last screen shows this whether or
-  // not an overlay is up, and both are empty strings until WiFi is joined.
-  ui_set_address(host.c_str(), ip.c_str());
-
-  // Every message below can be fixed on the panel, and tapping it opens the
-  // settings page that does: WiFi for these first two, Data for the rest.
   switch (net_state()) {
     case NetState::NoNetworks:
       // The network picker opens over this by itself (settings_bridge.cpp); this
       // is what is left if someone closes it.
-      ui_set_overlay_page(SheetPage::Wifi);
-      set_overlay("Set up WiFi", nullptr, "Tap or swipe up to choose a network");
+      set_banner("No WiFi. Tap to choose a network", BannerTone::Attention, SheetPage::Wifi);
       return;
     case NetState::Starting:
     case NetState::Connecting:
-      ui_set_overlay_page(SheetPage::Wifi);
-      set_overlay("Connecting to WiFi", nullptr, nullptr);
+      set_banner("Connecting to WiFi...", BannerTone::Info, SheetPage::Wifi);
       return;
     case NetState::Connected:
       break;
   }
 
   const DataSource source = settings_get().source;
-  ui_set_overlay_page(SheetPage::Data);
 
-  // One address per line rather than run together with "or": these are things to
-  // be typed, and a reader picking the one their phone can resolve should be able
-  // to take in each on its own.
-  String where = "http://";
-  if (!host.isEmpty()) {
-    where += host;
-    where += "/\nhttp://";
-  }
-  where += ip;
-  where += "/";
-
+  // Different words per source: there is no server code to enter when the panel
+  // talks to the plant directly, and telling someone to find one would send them
+  // looking for something that does not exist.
   if (!settings_is_provisioned()) {
-    // The code carries the same address as the text beside it, so a phone can
-    // skip the typing and everyone else still has something to read.
-    //
-    // Different instruction per source: there is no enrolment URL to paste when
-    // the Puck talks to the plant directly, and telling someone to find one would
-    // send them looking for something that does not exist.
-    // The panel's own settings first; the web page is the alternative.
     if (source == DataSource::Modbus) {
-      detail = "Tap to set the plant's IP address, or scan this";
+      set_banner("Plant not set up. Tap to enter its IP address", BannerTone::Attention);
     } else if (source == DataSource::HomeAssistant) {
-      detail = "Tap to set the address and token, or scan this";
+      set_banner("Home Assistant not set up. Tap to enter its address and token",
+                 BannerTone::Attention);
     } else {
-      detail = "Tap to enter the server and code, or scan this";
+      set_banner("Server not set up. Tap to enter the server and code", BannerTone::Attention);
     }
-    set_overlay("Not configured", where.c_str(), detail.c_str(), true);
     return;
   }
 
-  // A revoked token is not a network fault and will never fix itself, so it says
-  // so rather than sitting on "waiting for data" forever. Fixed on the panel like
-  // any other setting: the web page is offered, not required.
+  // A rejected credential is not a network fault and will never fix itself, so it
+  // says so rather than sitting on "waiting for data" forever.
   if (status.last_result == FetchResult::Unauthorised) {
-    set_overlay(source == DataSource::HomeAssistant ? "HA token rejected" : "Re-enrol needed",
-                where.c_str(),
-                source == DataSource::HomeAssistant
-                    ? "Home Assistant no longer accepts this token.\nTap to enter a new one, or scan this"
-                    : "The server no longer accepts this panel's code.\nTap to enter a new one, or scan this",
-                true);
+    set_banner(source == DataSource::HomeAssistant
+                   ? "Home Assistant rejected the token. Tap to enter a new one"
+                   : "The server rejected this panel's code. Tap to enter a new one",
+               BannerTone::Problem);
     return;
   }
 
   if (!have_snapshot) {
     if (status.last_result == FetchResult::ClockUnset) {
-      set_overlay("Waiting for clock", nullptr, "HTTPS needs the time set.\nWaiting for NTP.");
+      set_banner("Setting the clock...", BannerTone::Info, SheetPage::Wifi);
+    } else if (status.last_result == FetchResult::NoNetwork) {
+      // The poll that ran before WiFi came up. WiFi is connected by the time this
+      // is reached, so the next poll will say more; red here was a false alarm
+      // on every boot.
+      set_banner("Waiting for data...", BannerTone::Info);
     } else if (status.consecutive_failures > 0) {
       // Naming what is unreachable, because on the Modbus path "the server" is
       // not a thing that exists and the first place to look is the Sigen app's
       // Modbus whitelist.
-      if (source == DataSource::Modbus) {
-        detail = "Cannot reach the plant\n";
-      } else if (source == DataSource::HomeAssistant) {
-        detail = "Cannot read Home Assistant\n";
-      } else {
-        detail = "Cannot reach the server\n";
-      }
-      detail += fetch_result_name(status.last_result);
-      detail += "\nTap to check the settings";
-      set_overlay("No data", nullptr, detail.c_str());
+      static char text[112];
+      snprintf(text, sizeof(text), "Cannot reach %s (%s). Tap to check the settings",
+               source == DataSource::Modbus          ? "the plant"
+               : source == DataSource::HomeAssistant ? "Home Assistant"
+                                                     : "the server",
+               fetch_result_name(status.last_result));
+      set_banner(text, BannerTone::Problem);
     } else {
-      set_overlay("Waiting for data", nullptr, nullptr);
+      set_banner("Waiting for data...", BannerTone::Info);
     }
     return;
   }
 
   // Data is flowing: get out of the way. A stale reading is reported by the plant
-  // node on screen 1, not by covering everything up.
-  set_overlay(nullptr, nullptr, nullptr);
+  // node on screen 1, not by a banner.
+  set_banner(nullptr);
 }
 
 // Dims after a period with no touch. LVGL's own inactivity timer is used rather
@@ -303,7 +265,7 @@ void refresh_ui() {
   seen_day_generation = day_generation;
   seen_day_offset = day_offset;
   first = false;
-  refresh_overlay(have, status);
+  refresh_banner(have, status);
 }
 
 // The Puck's own battery, shown only when it is actually running on one. Normally
@@ -396,8 +358,8 @@ void setup() {
   display_set_brightness(settings_get().brightness);
   // A named boot screen rather than a bare word: on a device that takes a couple
   // of seconds to find WiFi, this is the only proof it is alive.
-  set_overlay("SigenStorPanel", nullptr, PUCK_FW_VERSION);
   ui_set_overlay("SigenStorPanel", nullptr, PUCK_FW_VERSION);
+  Serial.println("[ui] splash: SigenStorPanel " PUCK_FW_VERSION);
   // Draw the first frame before WiFi so the screen is alive while the radio comes
   // up, rather than black for a couple of seconds.
   lv_timer_handler();

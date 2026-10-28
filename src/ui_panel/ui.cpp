@@ -4,10 +4,10 @@
 #include <string.h>
 #include <time.h>
 
+#include "banner.h"
 #include "board_config.h"
 #include "chart_band.h"
 #include "history.h"
-#include "overlay_page.h"
 #include "qr_block.h"
 #include "screen_battery.h"
 #include "screen_cost.h"
@@ -57,8 +57,10 @@ uint32_t s_rotate_seconds = 0;
 uint32_t s_sweep_minutes = 0;
 uint32_t s_day_return_seconds = 0;
 lv_obj_t* s_overlay = nullptr;
-// What tapping the message opens (overlay_page.h).
-SheetPage s_overlay_page = SheetPage::Data;
+lv_obj_t* s_banner = nullptr;
+lv_obj_t* s_banner_text = nullptr;
+// What tapping the banner opens (banner.h).
+SheetPage s_banner_page = SheetPage::Data;
 lv_obj_t* s_overlay_title = nullptr;
 lv_obj_t* s_overlay_detail = nullptr;
 lv_obj_t* s_overlay_highlight = nullptr;
@@ -105,6 +107,11 @@ DayState s_day_state = DayState::Live;
 // on its way, which is the same kind of thing — something happening rather than
 // something that is.
 constexpr lv_coord_t TOAST_Y = -195; // landscape: toast near the top edge
+
+// The banner across the top, inside the edge bar and clear of the toast below it.
+constexpr lv_coord_t BANNER_Y = 28;
+constexpr lv_coord_t BANNER_H = 46;
+constexpr lv_coord_t BANNER_MAX_W = 880;
 
 // The day indicator sits just above the page dots, because it is the same kind of
 // thing they are: persistent state. Sharing the top with the toast meant a
@@ -439,7 +446,34 @@ lv_obj_t* ui_create(lv_obj_t* parent, const UiConfig& config) {
   lv_obj_align(s_toast, LV_ALIGN_CENTER, 0, TOAST_Y);
   lv_obj_add_flag(s_toast, LV_OBJ_FLAG_HIDDEN);
 
-  // Built last so it sits above the tileview and the dots in z-order.
+  // The banner: above the tileview and the dots, below the boot splash and the
+  // settings sheet. Clickable, but gestures bubble, so a swipe that starts on it
+  // still reaches the screen's handler.
+  s_banner = lv_obj_create(parent);
+  lv_obj_remove_style_all(s_banner);
+  lv_obj_set_size(s_banner, LV_SIZE_CONTENT, BANNER_H);
+  lv_obj_align(s_banner, LV_ALIGN_TOP_MID, 0, BANNER_Y);
+  lv_obj_set_style_radius(s_banner, BANNER_H / 2, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(s_banner, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_pad_hor(s_banner, 24, LV_PART_MAIN);
+  lv_obj_clear_flag(s_banner, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(s_banner, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(s_banner, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_event_cb(
+      s_banner,
+      [](lv_event_t*) {
+        if (!settings_sheet_is_open()) {
+          settings_sheet_open(s_banner_page, true);
+        }
+      },
+      LV_EVENT_CLICKED, nullptr);
+  s_banner_text = lv_label_create(s_banner);
+  lv_obj_set_style_text_font(s_banner_text, PUCK_FONT_BODY, LV_PART_MAIN);
+  lv_obj_set_style_max_width(s_banner_text, BANNER_MAX_W, LV_PART_MAIN);
+  lv_label_set_long_mode(s_banner_text, LV_LABEL_LONG_DOT);
+  lv_obj_center(s_banner_text);
+
+  // The boot splash. Built last so it sits above everything in z-order.
   s_overlay = lv_obj_create(parent);
   lv_obj_remove_style_all(s_overlay);
   lv_obj_set_size(s_overlay, PUCK_LCD_WIDTH, PUCK_LCD_HEIGHT);
@@ -448,18 +482,6 @@ lv_obj_t* ui_create(lv_obj_t* parent, const UiConfig& config) {
   lv_obj_set_style_bg_opa(s_overlay, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_HIDDEN);
-  // Every message here is something the settings sheet can fix, so tapping it
-  // opens the sheet on the page that does. A swipe up still bubbles to the
-  // screen's gesture handler, which opens the sheet before this click arrives.
-  lv_obj_add_flag(s_overlay, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(
-      s_overlay,
-      [](lv_event_t*) {
-        if (!settings_sheet_is_open()) {
-          settings_sheet_open(s_overlay_page, true);
-        }
-      },
-      LV_EVENT_CLICKED, nullptr);
 
   s_overlay_title = lv_label_create(s_overlay);
   lv_obj_set_style_text_font(s_overlay_title, PUCK_FONT_LARGE, LV_PART_MAIN);
@@ -493,10 +515,8 @@ lv_obj_t* ui_create(lv_obj_t* parent, const UiConfig& config) {
   lv_label_set_long_mode(s_overlay_detail, LV_LABEL_LONG_WRAP);
   lv_obj_align(s_overlay_detail, LV_ALIGN_CENTER, 0, 30);
 
-  // A handle at the bottom edge, the way phones mark a swipe up. Above the
-  // overlay too: settings open over "Set up WiFi" and the rest, and that is where
-  // the hint matters most. Tapping it opens them as well, for anyone who does not
-  // think to swipe.
+  // A handle at the bottom edge, the way phones mark a swipe up. Tapping it opens
+  // the settings as well, for anyone who does not think to swipe.
   lv_obj_t* handle_hit = lv_obj_create(parent);
   lv_obj_remove_style_all(handle_hit);
   lv_obj_set_size(handle_hit, 200, 44);
@@ -692,8 +712,31 @@ void ui_set_device_battery(bool show, int percent, bool charging) {
   screen_power_set_device_battery(show, percent, charging);
 }
 
-void ui_set_overlay_page(SheetPage page) {
-  s_overlay_page = page;
+void ui_set_banner(const char* text, BannerTone tone, SheetPage page) {
+  if (s_banner == nullptr) {
+    return;
+  }
+  if (text == nullptr) {
+    lv_obj_add_flag(s_banner, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  // A dark wash of the tone's colour behind text in that colour, as the settings
+  // sheet's "Restart to apply" bar does: readable, but not a slab of red on a
+  // display people look at all day.
+  uint32_t background = 0x26262A;
+  uint32_t colour = PUCK_COLOUR_TEXT;
+  if (tone == BannerTone::Attention) {
+    background = 0x2A1F0A;
+    colour = PUCK_COLOUR_WARN;
+  } else if (tone == BannerTone::Problem) {
+    background = 0x2E0E0E;
+    colour = PUCK_COLOUR_ALARM;
+  }
+  lv_obj_set_style_bg_color(s_banner, lv_color_hex(background), LV_PART_MAIN);
+  lv_obj_set_style_text_color(s_banner_text, lv_color_hex(colour), LV_PART_MAIN);
+  lv_label_set_text(s_banner_text, text);
+  s_banner_page = page;
+  lv_obj_clear_flag(s_banner, LV_OBJ_FLAG_HIDDEN);
 }
 
 void ui_set_overlay(const char* title, const char* highlight, const char* detail, bool with_qr) {

@@ -37,7 +37,7 @@
 #include "snapshot.h"
 #include "ui/theme.h"
 #include "ui/ui.h"
-#include "ui_panel/overlay_page.h"
+#include "ui_panel/banner.h"
 #include "ui_panel/settings_sheet.h"
 
 namespace {
@@ -426,7 +426,7 @@ void show_current_fixture() {
 //
 // The device's poll-to-screen path in miniature: the day series goes into the
 // history ring as it arrives, then the summary goes to ui_update(), which files
-// it into the ring as well. The overlays are the device's, worded the same.
+// it into the ring as well. The banners are the device's, worded the same.
 
 bool s_live_ever_ok = false;
 bool s_live_day_ok = false;
@@ -447,7 +447,7 @@ void show_live(const LiveUpdate& update) {
     Snapshot snapshot;
     if (snapshot_parse(update.summary.c_str(), update.summary.size(), &snapshot)) {
       s_live_ever_ok = true;
-      ui_set_overlay(nullptr, nullptr, nullptr);
+      ui_set_banner(nullptr, BannerTone::Info, SheetPage::Data);
       lv_obj_set_style_text_color(s_body, lv_color_hex(COLOUR_TEXT), LV_PART_MAIN);
       lv_label_set_text(s_body, describe(snapshot).c_str());
       ui_update(snapshot);
@@ -469,16 +469,12 @@ void show_live(const LiveUpdate& update) {
     sim_backend_set_title(title.c_str());
     // A rejected token never fixes itself, so it is said whatever came before.
     if (update.error == "http 401" || update.error == "http 403") {
-      ui_set_overlay_page(SheetPage::Data);
-      ui_set_overlay("Re-enrol needed", s_live_host.c_str(),
-                     "The server no longer accepts this panel's code.\nTap to enter a new one, "
-                     "or scan this",
-                     true);
+      ui_set_banner("The server rejected this panel's code. Tap to enter a new one",
+                    BannerTone::Problem, SheetPage::Data);
     } else if (!s_live_ever_ok) {
-      ui_set_overlay_page(SheetPage::Data);
-      const std::string detail =
-          "Cannot reach the server\n" + update.error + "\nTap to check the settings";
-      ui_set_overlay("No data", nullptr, detail.c_str());
+      const std::string text =
+          "Cannot reach the server (" + update.error + "). Tap to check the settings";
+      ui_set_banner(text.c_str(), BannerTone::Problem, SheetPage::Data);
     }
   }
 }
@@ -555,7 +551,7 @@ bool start_live(const std::string& base, const std::string& token) {
   forecast_store_clear();
   ui_clear_day();
   ui_set_day_offset(0);
-  ui_set_overlay("Waiting for data", nullptr, nullptr);
+  ui_set_banner("Waiting for data...", BannerTone::Info, SheetPage::Data);
   sim_backend_set_title("SigenStorPanel sim - live - connecting");
 
   s_sheet_data.source = DataSource::Server;
@@ -570,7 +566,7 @@ void show_current_fixture();
 void stop_live() {
   live_source_end();
   s_live = false;
-  ui_set_overlay(nullptr, nullptr, nullptr);
+  ui_set_banner(nullptr, BannerTone::Info, SheetPage::Data);
   show_current_fixture();
 }
 
@@ -960,7 +956,7 @@ void build_debug_view() {
   lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
   lv_label_set_text(hint,
                     "n/p fixture   [ ] screen   , . tilt   - = day\n"
-                    "r auto-cycle   o overlay   s settings   d dump   esc quit");
+                    "r auto-cycle   o banner   s settings   d dump   esc quit");
   lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -34);
 }
 
@@ -1003,38 +999,32 @@ void apply_view_visibility() {
   }
 }
 
-// The overlays are driven by device state — WiFi, provisioning, a revoked token
-// — none of which a fixture can express. Cycling them from the keyboard is the
-// only way to lay them out without flashing a deliberately broken device.
-// The same words and tap targets as refresh_overlay() in src/main.cpp.
-constexpr int OVERLAY_STATES = 4;  // three messages, then none
+// The banners are driven by device state (WiFi, provisioning, a rejected code)
+// none of which a fixture can express. Cycling them from the keyboard is the only
+// way to lay them out without flashing a deliberately broken device. The same
+// words, tones and tap targets as refresh_banner() in src/main.cpp.
+constexpr int BANNER_STATES = 5;  // four banners, then none
 
-void cycle_overlay() {
+void cycle_banner() {
   static int which = 0;
-  which = (which + 1) % OVERLAY_STATES;
+  which = (which + 1) % BANNER_STATES;
   switch (which) {
     case 1:
-      ui_set_overlay_page(SheetPage::Data);
-      ui_set_overlay("Not configured",
-                     "http://sigenstorpanel.local/\n"
-                     "http://192.168.1.100/",
-                     "Tap to enter the server and code, or scan this", true);
+      ui_set_banner("No WiFi. Tap to choose a network", BannerTone::Attention, SheetPage::Wifi);
       break;
     case 2:
-      ui_set_overlay_page(SheetPage::Data);
-      ui_set_overlay("Re-enrol needed",
-                     "http://sigenstorpanel.local/\n"
-                     "http://192.168.1.100/",
-                     "The server no longer accepts this panel's code.\nTap to enter a new one, "
-                     "or scan this",
-                     true);
+      ui_set_banner("Server not set up. Tap to enter the server and code",
+                    BannerTone::Attention, SheetPage::Data);
       break;
     case 3:
-      ui_set_overlay_page(SheetPage::Wifi);
-      ui_set_overlay("Set up WiFi", nullptr, "Tap or swipe up to choose a network");
+      ui_set_banner("The server rejected this panel's code. Tap to enter a new one",
+                    BannerTone::Problem, SheetPage::Data);
+      break;
+    case 4:
+      ui_set_banner("Connecting to WiFi...", BannerTone::Info, SheetPage::Wifi);
       break;
     default:
-      ui_set_overlay(nullptr, nullptr, nullptr);
+      ui_set_banner(nullptr, BannerTone::Info, SheetPage::Data);
       break;
   }
 }
@@ -1042,7 +1032,7 @@ void cycle_overlay() {
 void handle_key(int key) {
   const size_t count = s_fixture_paths.size();
   if (key == 'o') {
-    cycle_overlay();
+    cycle_banner();
     return;
   }
   if (key == 's') {
@@ -1209,27 +1199,26 @@ int run_sheet_shots(const std::string& directory) {
         "opens from another screen and leaves it there");
   settings_sheet_close(false);
 
-  // A message covering the screens is a thing to fix in settings: a tap on it
-  // opens the page that fixes it, and a swipe up still works through it.
-  ui_set_overlay_page(SheetPage::Data);
-  ui_set_overlay("Re-enrol needed", nullptr, "Tap to enter a new one");
+  // A banner is a thing to fix in settings: a tap on it opens the page that
+  // fixes it, and a swipe up still works with one showing.
+  ui_set_banner("The server rejected this panel's code. Tap to enter a new one",
+                BannerTone::Problem, SheetPage::Data);
   run_frames(100);
-  drag(512, 300, 512, 300);
+  drag(512, 51, 512, 51);
   check(settings_sheet_is_open() && settings_sheet_page() == SheetPage::Data,
-        "tapping a data message opens Data");
+        "tapping a data banner opens Data");
   settings_sheet_close(false);
-  ui_set_overlay_page(SheetPage::Wifi);
-  ui_set_overlay("Set up WiFi", nullptr, "Tap or swipe up to choose a network");
+  ui_set_banner("No WiFi. Tap to choose a network", BannerTone::Attention, SheetPage::Wifi);
   run_frames(100);
-  drag(512, 300, 512, 300);
+  drag(512, 51, 512, 51);
   check(settings_sheet_is_open() && settings_sheet_page() == SheetPage::Wifi,
-        "tapping a WiFi message opens WiFi");
+        "tapping a WiFi banner opens WiFi");
   settings_sheet_close(false);
   run_frames(100);
   drag(512, 460, 512, 160);
-  check(settings_sheet_is_open(), "swipe up opens it through a message");
+  check(settings_sheet_is_open(), "swipe up opens it with a banner showing");
   settings_sheet_close(false);
-  ui_set_overlay(nullptr, nullptr, nullptr);
+  ui_set_banner(nullptr, BannerTone::Info, SheetPage::Data);
   run_frames(100);
 
   static const char* const NAMES[] = {"sheet_1_display", "sheet_2_screens", "sheet_3_wifi",
@@ -1417,24 +1406,24 @@ int run_screenshot_pass(const std::string& output_directory) {
     }
   }
 
-  // The overlays are not screens, but they are full-screen layouts with a QR
-  // code and three lines of text to fit on a circle — exactly the thing this
-  // pass exists to check. Once each, over whichever fixture is loaded.
-  for (int i = 1; i < OVERLAY_STATES; ++i) {
-    cycle_overlay();
+  // The banners are not screens, but each is a line of text that has to fit
+  // across the top without covering what is under it, which is exactly the thing
+  // this pass exists to check. Once each, over whichever fixture is loaded.
+  for (int i = 1; i < BANNER_STATES; ++i) {
+    cycle_banner();
     lv_refr_now(nullptr);
     char path[512];
-    snprintf(path, sizeof(path), "%s/overlay_%d.bmp", output_directory.c_str(), i);
+    snprintf(path, sizeof(path), "%s/banner_%d.bmp", output_directory.c_str(), i);
     if (sim_backend_save_bmp(path)) {
       printf("[sim] wrote %s\n", path);
     } else {
       ++failures;
     }
   }
-  cycle_overlay();
+  cycle_banner();
 
   // The day indicator and the toast, which the buttons drive on hardware and no
-  // fixture can express — same reasoning as the overlays above.
+  // fixture can express — same reasoning as the banners above.
   ui_show_screen(1);
   // Back to a real fixture first: the loop above leaves s_current one past the
   // end, and show_current_fixture() would index out of bounds, fail to read and
