@@ -8,7 +8,16 @@ namespace sheet_kit {
 // "Tap again to confirm": one button armed at a time.
 lv_obj_t* s_armed = nullptr;
 char s_armed_idle_text[32] = {};
+lv_color_t s_armed_idle_colour;
 lv_timer_t* s_armed_timer = nullptr;
+
+// A confirmed button showing that the tap landed, until what it started takes
+// over the screen. One at a time.
+lv_obj_t* s_acked = nullptr;
+char s_acked_idle_text[32] = {};
+lv_color_t s_acked_idle_colour;
+lv_color_t s_acked_idle_text_colour;
+lv_timer_t* s_acked_timer = nullptr;
 
 // ----------------------------------------------------------- small helpers ---
 
@@ -275,7 +284,7 @@ const char* screen_name(PuckScreen screen) {
 void disarm() {
   if (s_armed != nullptr) {
     button_set_text(s_armed, s_armed_idle_text);
-    lv_obj_set_style_bg_color(s_armed, lv_color_hex(COLOUR_CONTROL), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_armed, s_armed_idle_colour, LV_PART_MAIN);
     s_armed = nullptr;
   }
   if (s_armed_timer != nullptr) {
@@ -284,17 +293,58 @@ void disarm() {
   }
 }
 
+void unacknowledge(lv_obj_t* obj) {
+  if (s_acked == nullptr || (obj != nullptr && obj != s_acked)) {
+    return;
+  }
+  button_set_text(s_acked, s_acked_idle_text);
+  lv_obj_set_style_bg_color(s_acked, s_acked_idle_colour, LV_PART_MAIN);
+  lv_obj_set_style_text_color(lv_obj_get_child(s_acked, 0), s_acked_idle_text_colour,
+                              LV_PART_MAIN);
+  lv_obj_add_flag(s_acked, LV_OBJ_FLAG_CLICKABLE);
+  s_acked = nullptr;
+  if (s_acked_timer != nullptr) {
+    lv_timer_del(s_acked_timer);
+    s_acked_timer = nullptr;
+  }
+}
+
 // True on the second tap. The first only arms the button: forgetting a network
 // or restarting is not something a stray touch on a wall panel should do.
-bool confirmed(lv_obj_t* obj, const char* armed_text) {
+//
+// With `done_text`, the second tap turns the button green and says so, rather
+// than putting it straight back as it was. Install and Restart need that: what
+// they start begins a moment later, on another task, and a button that reverts
+// on the tap reads as a tap that did nothing. Only for buttons that outlive the
+// tap (not a list row the tap removes).
+bool confirmed(lv_obj_t* obj, const char* armed_text, const char* done_text) {
   if (s_armed == obj) {
-    disarm();
+    if (done_text == nullptr) {
+      disarm();
+      return true;
+    }
+    unacknowledge(nullptr);
+    s_acked = obj;
+    snprintf(s_acked_idle_text, sizeof(s_acked_idle_text), "%s", s_armed_idle_text);
+    s_acked_idle_colour = s_armed_idle_colour;
+    s_armed = nullptr;
+    disarm();  // only the timer is left to clear
+    lv_obj_t* label = lv_obj_get_child(obj, 0);
+    s_acked_idle_text_colour = lv_obj_get_style_text_color(label, LV_PART_MAIN);
+    button_set_text(obj, done_text);
+    lv_obj_set_style_bg_color(obj, lv_color_hex(COLOUR_CONFIRMED), LV_PART_MAIN);
+    lv_obj_set_style_text_color(label, lv_color_hex(PUCK_COLOUR_BG), LV_PART_MAIN);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    s_acked_timer = lv_timer_create([](lv_timer_t*) { unacknowledge(nullptr); }, ACKNOWLEDGE_MS,
+                                    nullptr);
+    lv_timer_set_repeat_count(s_acked_timer, 1);
     return true;
   }
   disarm();
   s_armed = obj;
   snprintf(s_armed_idle_text, sizeof(s_armed_idle_text), "%s",
            lv_label_get_text(lv_obj_get_child(obj, 0)));
+  s_armed_idle_colour = lv_obj_get_style_bg_color(obj, LV_PART_MAIN);
   button_set_text(obj, armed_text);
   lv_obj_set_style_bg_color(obj, lv_color_hex(PUCK_COLOUR_ALARM), LV_PART_MAIN);
   s_armed_timer = lv_timer_create([](lv_timer_t*) { disarm(); }, CONFIRM_MS, nullptr);

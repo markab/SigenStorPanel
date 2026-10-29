@@ -50,6 +50,11 @@ inline constexpr uint32_t OPEN_MS = 220;
 inline constexpr uint32_t IDLE_CLOSE_MS = 60000;
 // How long a "tap again to confirm" button stays armed.
 inline constexpr uint32_t CONFIRM_MS = 3000;
+// How long a confirmed Install or Restart stays green if nothing takes over the
+// screen first. An install waits for the poll task's next turn to begin.
+inline constexpr uint32_t ACKNOWLEDGE_MS = 20000;
+// Armed is the alarm red; confirmed is the battery green.
+inline constexpr uint32_t COLOUR_CONFIRMED = PUCK_COLOUR_BATTERY;
 
 // ----------------------------------------------------------------- widgets ---
 
@@ -147,7 +152,11 @@ const char* ha_sensors_summary(char* out, size_t size);
 // ----------------------------------------------------------------- confirm ---
 
 void disarm();
-// True on the second tap. The first only arms the button.
-bool confirmed(lv_obj_t* obj, const char* armed_text);
+// True on the second tap. The first only arms the button, red. With `done_text`
+// the second turns it green, showing `done_text`, until unacknowledge() or
+// ACKNOWLEDGE_MS.
+bool confirmed(lv_obj_t* obj, const char* armed_text, const char* done_text = nullptr);
+// Puts a confirmed button back as it was; nullptr for whichever one it is.
+void unacknowledge(lv_obj_t* obj);
 
 }  // namespace sheet_kit

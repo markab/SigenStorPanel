@@ -536,6 +536,11 @@ void refresh_device() {
                                                              : PUCK_COLOUR_MUTED),
       LV_PART_MAIN);
   set_hidden(s_install_button, s_device.update != SheetUpdate::Available);
+  // A confirmed Install stays green until the install takes over or fails, so
+  // the next time an update is offered the button reads Install again.
+  if (s_device.update != SheetUpdate::Available) {
+    unacknowledge(s_install_button);
+  }
   set_hidden(s_device_dot, s_device.update != SheetUpdate::Available);
   set_checked(s_auto_check, s_device.auto_check);
   set_disabled(s_check_button, s_device.update == SheetUpdate::Checking ||
@@ -751,7 +756,7 @@ void on_check(lv_event_t* /*event*/) {
 }
 
 void on_install(lv_event_t* /*event*/) {
-  if (!confirmed(s_install_button, "Install now?")) {
+  if (!confirmed(s_install_button, "Install now?", "Installing...")) {
     return;
   }
   if (s_actions.install_update != nullptr) {
@@ -761,7 +766,7 @@ void on_install(lv_event_t* /*event*/) {
 
 void on_restart(lv_event_t* event) {
   lv_obj_t* target = lv_event_get_current_target(event);
-  if (!confirmed(target, "Restart now?")) {
+  if (!confirmed(target, "Restart now?", "Restarting...")) {
     return;
   }
   if (s_actions.restart != nullptr) {
