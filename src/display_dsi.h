@@ -10,3 +10,11 @@
 // moves it out for as long as it runs: at 120 KB it is the largest thing in
 // internal RAM, which the download needs (updater.cpp, fetch_image).
 bool display_use_internal_buffer(bool internal);
+
+// Keeps the backlight off whatever brightness and sleep say, until released.
+// Safe from any task.
+//
+// For writing flash: PSRAM pauses while flash is written, so the DPI peripheral
+// cannot read the framebuffer and the panel flashes blue for every write, a few
+// dozen times in an install. Dark for those seconds reads better than flicker.
+void display_hold_dark(bool dark);

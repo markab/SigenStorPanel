@@ -210,6 +210,7 @@ struct SheetDevice {
   SheetUpdate update = SheetUpdate::Idle;
   bool auto_check = false;       // check for updates without being asked
   int8_t update_percent = -1;    // while installing; -1 when not known yet
+  bool update_writing = false;   // downloaded; writing flash with the screen dark
   char update_version[16] = {};  // the newer version, when there is one
   char update_detail[SHEET_TEXT] = {};
 };

@@ -1778,7 +1778,10 @@ void refresh_updating() {
   char line[48];
   snprintf(line, sizeof(line), "Updating to %s", s_device.update_version);
   lv_label_set_text(s_updating_title, line);
-  if (s_device.update_percent >= 0) {
+  if (s_device.update_writing) {
+    lv_bar_set_value(s_updating_bar, s_device.update_percent, LV_ANIM_OFF);
+    snprintf(line, sizeof(line), "Writing. The screen goes dark until it restarts");
+  } else if (s_device.update_percent >= 0) {
     lv_bar_set_value(s_updating_bar, s_device.update_percent, LV_ANIM_OFF);
     snprintf(line, sizeof(line), "%d%%", s_device.update_percent);
   } else {

@@ -312,6 +312,7 @@ void push_device() {
            update.latest_version.c_str());
   snprintf(device.update_detail, sizeof(device.update_detail), "%s", update.message.c_str());
   device.update_percent = updater_progress_percent();
+  device.update_writing = updater_writing_flash();
   device.auto_check = settings_get().check_updates;
   settings_sheet_set_device(device);
 }
@@ -559,8 +560,10 @@ void settings_bridge_loop() {
 
   // Install progress moves quickly enough to be worth more than once a second.
   static int8_t last_percent = -1;
-  if (updater_progress_percent() != last_percent) {
+  static bool last_writing = false;
+  if (updater_progress_percent() != last_percent || updater_writing_flash() != last_writing) {
     last_percent = updater_progress_percent();
+    last_writing = updater_writing_flash();
     push_device();
   }
 

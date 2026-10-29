@@ -17,6 +17,7 @@
 
 #include "board_config.h"
 #include "display.h"
+#include "display_dsi.h"
 #include "net.h"
 #include "settings.h"
 
@@ -75,6 +76,9 @@ constexpr int DOWNLOAD_SHARE_PERCENT = 70;
 // A download that has delivered nothing for this long has stalled.
 constexpr uint32_t DOWNLOAD_STALL_MS = 20000;
 
+// How long "Writing" stays readable before the screen goes dark for the write.
+constexpr uint32_t WRITE_NOTICE_MS = 1500;
+
 // How long to wait for the UI thread to move the draw buffer out of internal RAM.
 constexpr uint32_t BUFFER_MOVE_WAIT_MS = 2000;
 
@@ -94,6 +98,7 @@ uint32_t s_last_check_ms = 0;
 bool s_ever_checked = false;
 volatile int8_t s_progress = -1;
 volatile bool s_wants_internal_ram = false;
+volatile bool s_writing = false;
 
 extern "C" const uint8_t rootca_crt_bundle_start[] asm("_binary_x509_crt_bundle_start");
 extern "C" const uint8_t rootca_crt_bundle_end[] asm("_binary_x509_crt_bundle_end");
@@ -414,7 +419,18 @@ String download_image() {
   if (!failure.isEmpty()) {
     return failure;
   }
-  return write_image(image.get(), size);
+  // The screen flickers while flash is written (display_hold_dark), so it says
+  // so, then goes dark until the restart, or until the write fails.
+  s_progress = DOWNLOAD_SHARE_PERCENT;
+  s_writing = true;
+  delay(WRITE_NOTICE_MS);
+  display_hold_dark(true);
+  const String written = write_image(image.get(), size);
+  if (!written.isEmpty()) {
+    display_hold_dark(false);
+    s_writing = false;
+  }
+  return written;
 }
 
 void perform_apply() {
@@ -541,4 +557,8 @@ int8_t updater_progress_percent() {
 
 bool updater_wants_internal_ram() {
   return s_wants_internal_ram;
+}
+
+bool updater_writing_flash() {
+  return s_writing;
 }

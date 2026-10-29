@@ -32,10 +32,11 @@ lv_disp_drv_t s_disp_drv;
 lv_color_t* s_pixels = nullptr;
 bool s_buffer_is_internal = false;
 bool s_asleep = false;
+volatile bool s_held_dark = false;
 uint8_t s_brightness = PUCK_LCD_BRIGHTNESS;
 
 void backlight_write(uint8_t level) {
-  ledcWrite(PUCK_BACKLIGHT_PWM, level);
+  ledcWrite(PUCK_BACKLIGHT_PWM, s_held_dark ? 0 : level);
 }
 
 void flush_cb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* pixels) {
@@ -144,6 +145,11 @@ bool display_asleep() {
 
 bool display_buffer_is_internal() {
   return s_buffer_is_internal;
+}
+
+void display_hold_dark(bool dark) {
+  s_held_dark = dark;
+  backlight_write(s_asleep ? 0 : s_brightness);
 }
 
 bool display_use_internal_buffer(bool internal) {
