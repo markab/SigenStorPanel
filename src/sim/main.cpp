@@ -748,7 +748,8 @@ void seed_sheet() {
 
   snprintf(s_sheet_device.firmware, sizeof(s_sheet_device.firmware), "%s", PUCK_FW_VERSION);
   snprintf(s_sheet_device.host, sizeof(s_sheet_device.host), "sigenstorpanel");
-  snprintf(s_sheet_device.mac, sizeof(s_sheet_device.mac), "E8:F6:0A:E1:D5:E0");
+  // Locally administered, so it can be no real board's.
+  snprintf(s_sheet_device.mac, sizeof(s_sheet_device.mac), "02:00:00:12:34:56");
   // A Home Assistant set up most of the way: some roles chosen, the rest not.
   snprintf(s_sheet_ha_sensors.entity[0], HA_ENTITY_ID_MAX, "sensor.sigen_plant_pv_power");
   snprintf(s_sheet_ha_sensors.entity[1], HA_ENTITY_ID_MAX, "sensor.sigen_plant_grid_active_power");

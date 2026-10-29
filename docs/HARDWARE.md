@@ -164,10 +164,9 @@ docs/UX.md).
 - **A separate USB 2.0 port** is the P4's own USB. Not needed for flashing. Elecrow's
   factory app enumerates on it as "Advance-P4", 303A:4004, a TinyUSB HID device with no
   serial port.
-- **The factory firmware is backed up** (16 MB, from the first board, MAC
-  `e8:f6:0a:e1:d5:df`) outside the repo, in `~/GitHub/SigenStorPanel-backups/`, with its
-  SHA-256 and boot log. It is Elecrow's, not ours to commit. Writing it back at 0x0
-  restores the board.
+- **The factory firmware is backed up** (16 MB, from the first board) outside the repo,
+  in `~/GitHub/SigenStorPanel-backups/`, with its SHA-256 and boot log. It is Elecrow's,
+  not ours to commit. Writing it back at 0x0 restores the board.
 - `esptool.py --chip esp32p4 read_mac` identifies the board. Do it before every flash:
   more than one ESP32 board shares this desk.
 - **Serial screenshots are impractical.** 1024×600×2 B is 1.2 MB, about 105 s per screen
@@ -245,7 +244,7 @@ metal no. Waveshare has a radome design guide.
 
 The speaker could give alerts later, as claude-gadget's `sound.cpp` does. Not planned.
 
-## Settled on the first board (2026-10-28, V1.2, MAC `e8:f6:0a:e1:d5:df`)
+## Settled on the first board (2026-10-28, V1.2)
 
 - **Silicon revision v1.3**: `board = esp32-p4` is right.
 - **Board version V1.2**, so the 4-bit SDIO table in the profile applies.
