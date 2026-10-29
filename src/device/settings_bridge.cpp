@@ -7,6 +7,7 @@
 #include "board_config.h"
 #include "data_source.h"
 #include "display.h"
+#include "display_dsi.h"
 #include "enrol_url.h"
 #include "ha_catalog_fetch.h"
 #include "kiosk_code.h"
@@ -546,6 +547,15 @@ void settings_bridge_loop() {
 
   // The sensor list arriving: someone opened the picker and is waiting for it.
   push_ha_list();
+
+  // An install borrows the draw buffer's internal RAM (updater.cpp). Moved here
+  // because this is the LVGL thread, and only when the request changes, so a
+  // move back that finds no room is not retried every loop.
+  static bool buffer_lent = false;
+  if (updater_wants_internal_ram() != buffer_lent) {
+    buffer_lent = updater_wants_internal_ram();
+    display_use_internal_buffer(!buffer_lent);
+  }
 
   // Install progress moves quickly enough to be worth more than once a second.
   static int8_t last_percent = -1;

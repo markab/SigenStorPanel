@@ -13,6 +13,7 @@
 // the Phase 1 measurement in docs/PLAN.md; this is the simpler of the two.
 
 #include "display.h"
+#include "display_dsi.h"
 
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
@@ -143,4 +144,27 @@ bool display_asleep() {
 
 bool display_buffer_is_internal() {
   return s_buffer_is_internal;
+}
+
+bool display_use_internal_buffer(bool internal) {
+  if (s_pixels == nullptr || internal == s_buffer_is_internal) {
+    return true;
+  }
+  const size_t pixel_count = static_cast<size_t>(PUCK_LCD_WIDTH) * PUCK_LVGL_BUFFER_LINES;
+  const size_t bytes = pixel_count * sizeof(lv_color_t);
+  auto* next = static_cast<lv_color_t*>(
+      heap_caps_malloc(bytes, internal ? MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA : MALLOC_CAP_SPIRAM));
+  if (next == nullptr) {
+    Serial.printf("[display] no room to move the draw buffer to %s\n",
+                  internal ? "internal RAM" : "PSRAM");
+    return false;
+  }
+  // Safe between lv_timer_handler() calls: flush_cb copies synchronously, so no
+  // flush is still reading the old buffer.
+  lv_disp_draw_buf_init(&s_draw_buf, next, nullptr, pixel_count);
+  heap_caps_free(s_pixels);
+  s_pixels = next;
+  s_buffer_is_internal = internal;
+  Serial.printf("[display] draw buffer moved to %s\n", internal ? "internal DMA RAM" : "PSRAM");
+  return true;
 }

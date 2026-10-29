@@ -1,17 +1,22 @@
 #include "updater.h"
 #include "updater_progress.h"
 
+#include <algorithm>
+#include <memory>
+
 #include <HTTPClient.h>
-#include <HTTPUpdate.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 
 #include <ArduinoJson.h>
+#include <esp_heap_caps.h>
+#include <esp_ota_ops.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 
 #include "board_config.h"
+#include "display.h"
 #include "net.h"
 #include "settings.h"
 
@@ -58,6 +63,21 @@ constexpr uint32_t AUTO_CHECK_EVERY_MS = 12 * 60 * 60 * 1000;
 // Long enough for the install screen to show 100% before the restart.
 constexpr uint32_t RESTART_AFTER_MS = 1500;
 
+// How much is taken off the connection at a time (one TLS record), and how much
+// is written to flash at a time (one sector, copied into internal RAM first).
+constexpr size_t READ_CHUNK_BYTES = 16384;
+constexpr size_t WRITE_CHUNK_BYTES = 4096;
+
+// The progress bar's split: the download fills it to here, the flash write the
+// rest. Writing is a few seconds; the download is most of the wait.
+constexpr int DOWNLOAD_SHARE_PERCENT = 70;
+
+// A download that has delivered nothing for this long has stalled.
+constexpr uint32_t DOWNLOAD_STALL_MS = 20000;
+
+// How long to wait for the UI thread to move the draw buffer out of internal RAM.
+constexpr uint32_t BUFFER_MOVE_WAIT_MS = 2000;
+
 
 // Guards s_status, which the background check writes and the settings page reads.
 // Without it the page could copy a String mid-assignment, which is a use-after-free
@@ -73,6 +93,7 @@ volatile bool s_apply_pending = false;
 uint32_t s_last_check_ms = 0;
 bool s_ever_checked = false;
 volatile int8_t s_progress = -1;
+volatile bool s_wants_internal_ram = false;
 
 extern "C" const uint8_t rootca_crt_bundle_start[] asm("_binary_x509_crt_bundle_start");
 extern "C" const uint8_t rootca_crt_bundle_end[] asm("_binary_x509_crt_bundle_end");
@@ -238,6 +259,164 @@ UpdateStatus perform_check() {
 }
 
 
+void log_heap(const char* when) {
+  Serial.printf("[update] %s: internal %u B free, largest %u B\n", when,
+                static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+                static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
+}
+
+// Frees what heap_caps_malloc gave, for a unique_ptr.
+struct HeapCapsFree {
+  void operator()(uint8_t* block) const { heap_caps_free(block); }
+};
+using PsramImage = std::unique_ptr<uint8_t, HeapCapsFree>;
+
+// Downloads firmware.bin whole into PSRAM. Returns an empty string on success, or
+// why it failed.
+//
+// Not HTTPUpdate, which crashed the panel a few percent into every install, and
+// not streaming to flash either, which crashed it too. On the P4, WiFi runs
+// through esp-hosted, and every packet the C6 hands over waits in internal RAM:
+// in esp-hosted's receive buffers, then in lwIP until it is read. A flash write
+// stalls both cores, so a download that writes as it goes reads slower than the
+// network delivers, and up to a full TCP window (64 KB) piles up in internal RAM,
+// in pieces. Then esp-hosted needs one contiguous buffer for its next read
+// (28 KB, in the second core dump), finds none, and esp-hosted 2.12.3 asserts
+// rather than dropping it (`sdio_rx_get_buffer`, sdio_drv.c:896).
+//
+// So the download touches no flash: it lands in PSRAM, of which there are 32 MB,
+// and is drained as fast as it arrives. The flash is written once the connection
+// is closed (write_image), when there is no traffic left to fall behind on.
+String fetch_image(PsramImage& image, size_t& size) {
+  WiFiClientSecure client;
+  attach_bundle(client);
+  HTTPClient http;
+  http.setConnectTimeout(5000);
+  http.setTimeout(10000);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.setReuse(false);
+  if (!http.begin(client, FIRMWARE_URL)) {
+    return "could not parse the update URL";
+  }
+  const int code = http.GET();
+  if (code != HTTP_CODE_OK) {
+    http.end();
+    return describe_http_error(code);
+  }
+  const int length = http.getSize();
+  const esp_partition_t* slot = esp_ota_get_next_update_partition(nullptr);
+  if (length <= 0) {
+    http.end();
+    return "GitHub did not say how big the update is";
+  }
+  if (slot == nullptr || static_cast<uint32_t>(length) > slot->size) {
+    http.end();
+    return "the update is too big for this panel's app slot";
+  }
+  size = static_cast<size_t>(length);
+  image.reset(static_cast<uint8_t*>(heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)));
+  if (!image) {
+    http.end();
+    return "not enough PSRAM to hold the update";
+  }
+
+  WiFiClient* stream = http.getStreamPtr();
+  size_t done = 0;
+  int logged_quarter = 0;
+  uint32_t last_data_ms = millis();
+  s_progress = 0;
+  while (done < size) {
+    const int ready = stream->available();
+    if (ready <= 0) {
+      if (!stream->connected() || millis() - last_data_ms > DOWNLOAD_STALL_MS) {
+        break;
+      }
+      delay(2);
+      continue;
+    }
+    const size_t want = std::min({static_cast<size_t>(ready), READ_CHUNK_BYTES, size - done});
+    const int got = stream->read(image.get() + done, want);
+    if (got <= 0) {
+      continue;
+    }
+    done += static_cast<size_t>(got);
+    last_data_ms = millis();
+    const int percent = static_cast<int>(static_cast<uint64_t>(done) * 100 / size);
+    s_progress = static_cast<int8_t>(percent * DOWNLOAD_SHARE_PERCENT / 100);
+    if (percent / 25 > logged_quarter) {
+      logged_quarter = percent / 25;
+      log_heap((String("downloaded ") + percent + "%").c_str());
+    }
+  }
+  http.end();
+  if (done != size) {
+    return String("the download stopped at ") +
+           static_cast<int>(static_cast<uint64_t>(done) * 100 / size) + "%";
+  }
+  return "";
+}
+
+// Writes a downloaded image into whichever OTA slot is not running, and makes it
+// the one to boot. Returns an empty string on success, or why it failed.
+String write_image(const uint8_t* image, size_t size) {
+  const esp_partition_t* slot = esp_ota_get_next_update_partition(nullptr);
+  if (slot == nullptr) {
+    return "there is no spare app slot to install into";
+  }
+  // Erases `size` bytes of the slot up front, yielding between blocks.
+  Serial.printf("[update] writing %u bytes to %s\n", static_cast<unsigned>(size), slot->label);
+  esp_ota_handle_t ota = 0;
+  esp_err_t err = esp_ota_begin(slot, size, &ota);
+  if (err != ESP_OK) {
+    return String("could not prepare the app slot (") + esp_err_to_name(err) + ")";
+  }
+
+  // Through internal RAM a sector at a time: flash is written with the cache off,
+  // when PSRAM cannot be read.
+  std::unique_ptr<uint8_t[]> sector(new (std::nothrow) uint8_t[WRITE_CHUNK_BYTES]);
+  if (!sector) {
+    esp_ota_abort(ota);
+    return String("not enough memory (free heap ") + ESP.getFreeHeap() + " B)";
+  }
+  for (size_t done = 0; done < size;) {
+    const size_t n = std::min(WRITE_CHUNK_BYTES, size - done);
+    memcpy(sector.get(), image + done, n);
+    // The first write also checks the image's magic byte, so an HTML error page
+    // served with a 200 is refused here rather than flashed.
+    err = esp_ota_write(ota, sector.get(), n);
+    if (err != ESP_OK) {
+      esp_ota_abort(ota);
+      return String("could not write the update (") + esp_err_to_name(err) + ")";
+    }
+    done += n;
+    s_progress = static_cast<int8_t>(
+        DOWNLOAD_SHARE_PERCENT +
+        static_cast<uint64_t>(done) * (100 - DOWNLOAD_SHARE_PERCENT) / size);
+  }
+  // Checks the image's checksum and hash before anything will boot it.
+  err = esp_ota_end(ota);
+  if (err != ESP_OK) {
+    return err == ESP_ERR_OTA_VALIDATE_FAILED
+               ? String("the downloaded image did not validate")
+               : String("could not finish the update (") + esp_err_to_name(err) + ")";
+  }
+  err = esp_ota_set_boot_partition(slot);
+  if (err != ESP_OK) {
+    return String("could not switch to the update (") + esp_err_to_name(err) + ")";
+  }
+  return "";
+}
+
+String download_image() {
+  PsramImage image;
+  size_t size = 0;
+  const String failure = fetch_image(image, size);
+  if (!failure.isEmpty()) {
+    return failure;
+  }
+  return write_image(image.get(), size);
+}
+
 void perform_apply() {
   if (updater_status().state != UpdateState::Available) {
     return;
@@ -247,42 +426,38 @@ void perform_apply() {
   status.state = UpdateState::Downloading;
   publish(status);
 
-  WiFiClientSecure client;
-  attach_bundle(client);
-
-  // The restart is ours, after the install screen has shown it finished.
-  httpUpdate.rebootOnUpdate(false);
-  httpUpdate.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  s_progress = -1;
-  httpUpdate.onProgress([](int done, int total) {
-    if (total > 0) {
-      s_progress = static_cast<int8_t>(static_cast<int64_t>(done) * 100 / total);
-    }
-  });
-
-  // Writes into whichever OTA slot is not running. If the new image will not boot,
-  // the bootloader falls back to this one — which is the reason for the stock
-  // two-slot 16 MB partition table.
-  const t_httpUpdate_return result = httpUpdate.update(client, FIRMWARE_URL);
-  switch (result) {
-    case HTTP_UPDATE_OK:
-      s_progress = 100;
-      Serial.println("[update] written, restarting into it");
-      delay(RESTART_AFTER_MS);
-      net_restart("firmware updated");
-      break;
-    case HTTP_UPDATE_NO_UPDATES:
-      status.state = UpdateState::UpToDate;
-      status.message = "the release had no update to give";
-      break;
-    case HTTP_UPDATE_FAILED:
-    default:
-      status.state = UpdateState::Failed;
-      status.message = httpUpdate.getLastErrorString();
-      Serial.printf("[update] failed: %s\n", status.message.c_str());
-      break;
+  // Even drained as fast as TLS can decrypt it, the download keeps up to a TCP
+  // window (64 KB, about 80 KB with esp-hosted's and lwIP's overheads) waiting in
+  // internal RAM, and esp-hosted needs blocks of up to 64 KB beside that. With the
+  // UI and a TLS session in place there were 167 KB free in pieces of at most
+  // 70 KB, and the third attempt died at 25%. The display's draw buffer is 120 KB
+  // of internal RAM that an install can do without, so it goes to PSRAM until
+  // the restart, or back again if the install fails.
+  log_heap("before");
+  s_wants_internal_ram = true;
+  const uint32_t asked_ms = millis();
+  while (display_buffer_is_internal() && millis() - asked_ms < BUFFER_MOVE_WAIT_MS) {
+    delay(10);
   }
+  log_heap("draw buffer in PSRAM");
+
+  // If the new image will not boot, the bootloader falls back to this one —
+  // which is the reason for the stock two-slot 16 MB partition table.
   s_progress = -1;
+  const String failure = download_image();
+  if (failure.isEmpty()) {
+    // The restart is ours, after the install screen has shown it finished.
+    s_progress = 100;
+    Serial.println("[update] written, restarting into it");
+    delay(RESTART_AFTER_MS);
+    net_restart("firmware updated");
+    return;
+  }
+  status.state = UpdateState::Failed;
+  status.message = failure;
+  Serial.printf("[update] failed: %s\n", status.message.c_str());
+  s_progress = -1;
+  s_wants_internal_ram = false;
   publish(status);
 }
 
@@ -362,4 +537,8 @@ UpdateStatus updater_status() {
 
 int8_t updater_progress_percent() {
   return s_progress;
+}
+
+bool updater_wants_internal_ram() {
+  return s_wants_internal_ram;
 }

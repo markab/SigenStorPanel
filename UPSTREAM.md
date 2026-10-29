@@ -80,7 +80,7 @@ if it applies.
 | `src/board_config.h` | Includes the one board profile; own version number |
 | `src/board_crowpanel_101.h` | New. Same symbol names as SigenStorPuck's profiles |
 | `src/main.cpp` | No `power_hold()`, no USB-CDC wait, no AMOLED sweep |
-| `src/display_dsi.cpp`, `src/touch_gt911.cpp` | New. This board's backends behind the verbatim `display.h` / `touch.h` contracts. Upstream's `display.cpp` / `touch.cpp` are the equivalents |
+| `src/display_dsi.{h,cpp}`, `src/touch_gt911.cpp` | New. This board's backends behind the verbatim `display.h` / `touch.h` contracts. Upstream's `display.cpp` / `touch.cpp` are the equivalents. `display_dsi.h` adds moving the draw buffer between internal RAM and PSRAM, for installs |
 | `src/device/power.{h,cpp}` | No AXP2101, no battery latch, no `ext0` wake on the P4. Same interface, every call a no-op; the backlight is in `display_dsi.cpp` |
 | `src/device/buttons.{h,cpp}` | BOOT only; no PWR key |
 | `src/device/net.{h,cpp}` | Rewritten. `WiFi.setPins()` before WiFi; no WiFiManager and no captive portal; up to five saved networks, joining the strongest in range (ported from claude-gadget); scans and joins driven from the on-glass picker |
@@ -90,7 +90,7 @@ if it applies.
 | `src/device/settings_server.{h,cpp}` | **Removed** 2026-10-28. Everything is set on the panel's settings sheet; the panel has no web interface |
 | `src/ha_catalog.{h,cpp}`, `src/device/ha_catalog_fetch.{h,cpp}`, `src/ui_panel/settings_sheet_ha.cpp` | New. Home Assistant's sensor list, rendered by its `/api/template` and picked from on the panel in place of typing entity IDs on the web page. The parse is Arduino-free and checked by `panel_selftest.cpp`; the fetch runs on its own task, since `poller.cpp` is verbatim |
 | `src/kiosk_code.{h,cpp}` | New. Tidies a kiosk code typed on the glass into the one spelling SigenStor Display (v0.38 on) hashes. Arduino-free beside the verbatim `enrol_url`, checked by `panel_selftest.cpp` |
-| `src/device/updater.cpp`, `src/device/updater_progress.h` | Pages URL points at SigenStorPanel. Install progress for the on-screen bar, restarts itself after showing 100%, and with "check automatically" on checks after boot and every 12 h |
+| `src/device/updater.cpp`, `src/device/updater_progress.h` | Pages URL points at SigenStorPanel. Install progress for the on-screen bar, restarts itself after showing 100%, and with "check automatically" on checks after boot and every 12 h. **Installs without HTTPUpdate** (0.1.1): the image is downloaded whole into PSRAM, then written with `esp_ota_*`, and the display's draw buffer moves to PSRAM for the install. Streaming to flash crashed esp-hosted on the P4 by running internal RAM out (see the comment on `fetch_image`). The Puck's native WiFi does not need this |
 | `src/ui/theme.h` | Font roles and spacing for 1024×600 |
 | `src/ui/fonts/`, `tools/generate_fonts.sh` | Larger Montserrat subsets |
 | `src/sim/main.cpp`, `src/sim/sim_backend.{h,cpp}` | 1024×600 window; panel screen set |
