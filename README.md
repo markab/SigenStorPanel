@@ -138,10 +138,17 @@ do this, and neither can anything on an iPhone or iPad. *The installer page is n
 published yet. Until it is, build and flash the firmware yourself; see **Building it
 yourself** below.*
 
-The panel's USB port goes through a WCH CH340 serial chip. **On a Mac, install WCH's
-CH34xVCPDriver first**, from the Mac App Store, open it once, and allow its driver
-extension in System Settings when macOS asks. Without it, the panel's serial port does
-not appear. Windows and Linux normally have the driver already.
+The panel's USB port goes through a WCH CH340 serial chip, and **a Mac needs WCH's
+driver first**. Without it, the panel's serial port does not appear:
+
+1. Download `CH34xVCPDriver.dmg` from WCH's
+   [ch34xser_macos](https://github.com/WCHSoftGroup/ch34xser_macos) repository on GitHub.
+2. Open it and drag **CH34xVCPDriver** into Applications.
+3. Open CH34xVCPDriver from Applications and click **Install**.
+4. Allow it in **System Settings → General → Login Items & Extensions → Driver
+   Extensions**.
+
+Windows and Linux normally have the driver already.
 
 If the installer cannot connect, hold **BOOT**, press and release **RST**, let go of
 BOOT, and try again.
