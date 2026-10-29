@@ -25,12 +25,11 @@ On github.com, in the repository's **Settings**:
 3. Re-run the latest `build` workflow on `main` (Actions tab, or push anything). The
    installer is then at <https://markab.github.io/SigenStorPanel/>.
 
-**The repository is private.** Pages on a private repository needs a paid GitHub plan
-(Pro or above). The published site is public either way, and has to be: the panel
-fetches its updates from it without a token. The alternative is making the repository
-public, as SigenStorPuck is. Before doing that, check that nothing gitignored has
-been committed by accident: `CLAUDE.md`, `docs/PLAN.md` and the two `docs/PUCK_` files
-document SigenStorDisplay's API and must stay out.
+**The repository is public**, as SigenStorPuck is. Pages on a private repository needs a
+paid GitHub plan, and the published site is public either way, and has to be: the panel
+fetches its updates from it without a token. Being public, nothing gitignored may ever be
+committed: `CLAUDE.md`, `docs/PLAN.md` and the two `docs/PUCK_` files document
+SigenStorDisplay's API and must stay out.
 
 With the GitHub CLI signed in, steps 1 and 2 are:
 

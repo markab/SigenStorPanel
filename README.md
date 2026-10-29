@@ -19,10 +19,9 @@ layer.
 
 **Status: early-release testing.** It runs on a real board (hardware revision V1.2):
 
-- **Confirmed:** the display, touch and WiFi, plus the server, Modbus and solar forecast
-  paths.
-- **Not yet tried:** the Home Assistant path on a real Home Assistant, the BOOT button and
-  the room sensor.
+- **Confirmed:** the display, touch and WiFi; the server, Modbus and solar forecast
+  paths; updates over WiFi; and the room sensor.
+- **Not yet tried:** the Home Assistant path on a real Home Assistant, and the BOOT button.
 
 ## Three ways to get data: read this first
 
@@ -134,9 +133,7 @@ Plug the panel's UART USB-C port into a computer, switch it on, and open this pa
 ### → [Install SigenStorPanel](https://markab.github.io/SigenStorPanel/)
 
 It flashes over WebSerial, with no flashing tool to download. Safari and Firefox cannot
-do this, and neither can anything on an iPhone or iPad. *The installer page is not
-published yet. Until it is, build and flash the firmware yourself; see **Building it
-yourself** below.*
+do this, and neither can anything on an iPhone or iPad.
 
 The panel's USB port goes through a WCH CH340 serial chip, and **a Mac needs WCH's
 driver first**. Without it, the panel's serial port does not appear:
@@ -154,6 +151,9 @@ If the installer cannot connect, hold **BOOT**, press and release **RST**, let g
 BOOT, and try again.
 
 After the first flash, the panel can update itself (see **Firmware** under Settings).
+One exception: a panel on **0.1.0** cannot update itself, because that version's updater
+crashes on the download. Flash it once more from the page above; from 0.1.1 on, updates
+install over WiFi.
 
 ### 2. Join it to your WiFi
 

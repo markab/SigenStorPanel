@@ -182,6 +182,7 @@ can switch the backlight off when nobody is in the room. Without one, nothing ch
 | Sensor | 3.0-3.6 V, about 50 mA; UART 115200 8N1 at 3.3 V; pins 3V3, GND, TX, RX, OT2 |
 | Range | wall-mounted: 8 m for movement, 6 m for micro-movement (breathing, typing) |
 | Connection | the **UART1 socket, J2**, GPIO48 and GPIO47, which the firmware uses as of 2026-10-29. The J7 IO breakout header (IO2 and IO3) also works with a pin change in the profile |
+| Tested | On the V1.2 board in J2, 2026-10-29: it saw someone leave and come back, the backlight went off after the set minute and came back on the moment they walked in, and nothing else in the room set it off in between |
 | Wiring | see the tables below. OT2 not needed |
 
 **J2, as the firmware is set up**, labelled UART1, beside the WiFi module: a 4-pin HY2.0
