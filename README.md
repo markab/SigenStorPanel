@@ -128,14 +128,23 @@ visible underneath. **Tap the line** to open the settings page that fixes it.
 
 ### 1. Flash the firmware
 
-The web installer (flashing from Chrome or Edge, with nothing to download) is being set
-up. Until it is ready, build and flash the firmware yourself; see **Building it
-yourself** below.
+Plug the panel's UART USB-C port into a computer, switch it on, and open this page in
+**Chrome or Edge**:
+
+### → [Install SigenStorPanel](https://markab.github.io/SigenStorPanel/)
+
+It flashes over WebSerial, with no flashing tool to download. Safari and Firefox cannot
+do this, and neither can anything on an iPhone or iPad. *The installer page is not
+published yet. Until it is, build and flash the firmware yourself; see **Building it
+yourself** below.*
 
 The panel's USB port goes through a WCH CH340 serial chip. **On a Mac, install WCH's
 CH34xVCPDriver first**, from the Mac App Store, open it once, and allow its driver
 extension in System Settings when macOS asks. Without it, the panel's serial port does
-not appear.
+not appear. Windows and Linux normally have the driver already.
+
+If the installer cannot connect, hold **BOOT**, press and release **RST**, let go of
+BOOT, and try again.
 
 After the first flash, the panel can update itself (see **Firmware** under Settings).
 
@@ -381,6 +390,9 @@ checks that need no hardware, including:
 - the solar forecast model;
 - the overnight window;
 - the room sensor's output.
+
+How releases, the installer page and updates are published is in
+[docs/RELEASING.md](docs/RELEASING.md).
 
 ## Home Assistant scope
 
