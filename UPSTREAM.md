@@ -5,7 +5,7 @@ SigenStorPanel was started on 2026-10-27 from two of Mark's own repositories.
 | Source | Ref | What it gave |
 |---|---|---|
 | [SigenStorPuck](https://github.com/markab/SigenStorPuck) | `de3b9f5` (v0.15.2) | Almost all of `src/`, the simulator, fixtures, tools and the web installer |
-| claude-gadget (~/GitHub/claude-gadget) | `00bf7fc` | `scripts/version.py`. Its setup flow and on-device settings are the model in docs/UX.md, ported by hand, not copied |
+| claude-gadget (~/GitHub/claude-gadget) | `00bf7fc` | Its setup flow and on-device settings are the model in docs/UX.md, ported by hand, not copied. Its `scripts/version.py` (version from the tag) came over too and was removed on 2026-10-29: the panel keeps the Puck's `PUCK_FW_VERSION` model |
 
 ## The plan: copy and track now, a shared library later
 
@@ -96,9 +96,9 @@ if it applies.
 | `src/sim/main.cpp`, `src/sim/sim_backend.{h,cpp}` | 1024×600 window; panel screen set |
 | `src/sim/live_source.{h,cpp}` | New. The sim's `--live` mode: polls a real server through libcurl. A candidate to offer upstream, since nothing in it is panel-specific |
 | `include/lv_conf.h` | `LV_MEM_SIZE` and fonts for the panel |
-| `tools/package_release.sh` | ESP32-P4, bootloader at 0x2000, one variant, no flat-URL alias |
-| `.github/workflows/build.yml` | `panel` and `sim`; own PlatformIO core dir. Manual-only until Phase 0c |
-| `web/installer/index.html` | One board |
+| `tools/package_release.sh` | ESP32-P4, bootloader at 0x2000, one variant, no flat-URL alias; esptool 5 (`merge-bin`) from this repo's own PlatformIO core |
+| `.github/workflows/build.yml` | `panel`, and `sim` with `--selftest` as a job of its own; own PlatformIO core dir; the Pages job waits for the `PAGES_ENABLED` variable |
+| `web/installer/index.html` | One board; the Mac CH340 driver note; setup on the glass |
 | `.gitignore` | Also ignores the two `docs/PUCK_*.md` reference copies |
 
 ### Forked: deliberately separate

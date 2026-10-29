@@ -1,18 +1,21 @@
 name: build
 
-# Every push and pull request gets built, so breakage is caught without hardware.
-# A v* tag additionally cuts a release with the flashable artifacts attached.
+# SigenStorPuck's pipeline, for the panel:
 #
-# MANUAL-ONLY until Phase 0c (docs/PLAN.md). This came over from SigenStorPuck
-# unchanged apart from the env names, and the tree does not build yet. Restore the
-# triggers below once `pio run -e panel` and `pio run -e sim` pass, and switch the
-# cache to this repo's own PlatformIO core_dir.
+# - Every push and pull request builds the firmware and the simulator, so breakage
+#   is caught without hardware.
+# - A push to main also packages the firmware and, once Pages is switched on (see
+#   the pages job), publishes the web installer with the firmware beside it. The
+#   panel's updater reads the same manifest, so this is also how updates reach
+#   panels already in use.
+# - A v* tag additionally cuts a GitHub Release with the images attached. The tag
+#   must match PUCK_FW_VERSION in src/board_config.h, or packaging fails.
 on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
   workflow_dispatch:
-#  push:
-#    branches: [main]
-#    tags: ['v*']
-#  pull_request:
 
 jobs:
   build:
@@ -28,13 +31,15 @@ jobs:
         with:
           python-version: '3.12'
 
-      # The ESP32 toolchain is several hundred megabytes and the platform pulls
-      # more; without this every run spends most of its time downloading.
+      # The ESP32-P4 toolchain is several hundred megabytes and the platform pulls
+      # more; without this every run spends most of its time downloading. The
+      # panel keeps its own PlatformIO core (core_dir in platformio.ini), so that
+      # is the directory cached, not ~/.platformio.
       - name: Cache PlatformIO
         uses: actions/cache@v4
         with:
           path: |
-            ~/.platformio
+            ~/.platformio-sigenstorpanel
             ~/.cache/pip
           key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
           restore-keys: pio-${{ runner.os }}-
@@ -43,20 +48,9 @@ jobs:
         run: pip install --upgrade platformio esptool
 
       - name: Build firmware
-        run: |
-          pio run -e panel
+        run: pio run -e panel
 
-      # Worth building too: the simulator shares the snapshot model, the enrolment
-      # URL parser and every screen, so this catches breakage in code the firmware
-      # build also depends on — and it is a fraction of the cost.
-      - name: Build simulator
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libsdl2-dev
-          pio run -e sim
-
-      # On tags this feeds the release; on main it feeds the installer page. Both
-      # want the same three files, so it runs for both.
+      # On tags this feeds the release; on main it feeds the installer page.
       - name: Package artifacts
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         run: ./tools/package_release.sh
@@ -65,9 +59,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          # One firmware and one whole-flash image per board variant. A Release's
-          # asset namespace is flat, so these carry the slug in the name; the
-          # per-slug manifests live on Pages next to their merged.bin.
+          # One OTA image and one whole-flash image per board. A Release's asset
+          # namespace is flat, so these carry the slug in the name; the manifest
+          # lives on Pages next to its merged.bin.
           files: |
             dist/firmware-*.bin
             dist/merged-*.bin
@@ -81,40 +75,85 @@ jobs:
           name: release-artifacts
           path: dist/
 
+  # A job of its own, so a simulator problem never holds up a firmware release.
+  # Worth building on every push all the same: the simulator shares the snapshot
+  # model, the parsers and every screen with the firmware, and --selftest runs the
+  # checks that need no hardware.
+  sim:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio-sigenstorpanel
+            ~/.cache/pip
+          key: pio-sim-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-sim-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      # SDL2 for the window, libcurl for --live.
+      - name: Install libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev libcurl4-openssl-dev
+
+      - name: Build simulator
+        run: pio run -e sim
+
+      - name: Self-tests
+        env:
+          SDL_VIDEODRIVER: dummy
+        run: .pio/build/sim/program --selftest
+
   # Publishes the installer to Pages, with the firmware alongside it.
   #
-  # Two repository settings are required and neither can be set from here:
+  # Off until two things are set on GitHub, neither of which can be set from here:
   #
   #   Settings > Pages > Source: GitHub Actions
   #     Otherwise Pages serves README.md through Jekyll and the installer is never
-  #     published — which looks like the install link reloading the page, because the
-  #     README's own link points back at the same URL.
+  #     published, which looks like the install link reloading the page.
   #
-  # Deploys from main rather than from a tag. The github-pages environment is created
-  # restricted to branches, and getting a tag allowed there needs a rule whose ref
-  # type is Tag rather than Branch — an easy thing to set wrongly, and it rejected two
-  # releases before this was changed. main is allowed by default, so this needs no
-  # environment rule at all.
+  #   Settings > Secrets and variables > Actions > Variables: PAGES_ENABLED = true
+  #     The switch for this job. Without it every push to main would fail here
+  #     until Pages exists.
+  #
+  # Pages for a private repository needs a paid GitHub plan; the published site is
+  # public either way, which is the point: the panel's updater fetches from it
+  # without a token.
+  #
+  # Deploys from main rather than from a tag, as SigenStorPuck does. The
+  # github-pages environment is created restricted to branches, and allowing a tag
+  # there needs a rule whose ref type is Tag rather than Branch, an easy thing to
+  # set wrongly. main is allowed by default, so this needs no environment rule.
   #
   # The cost is that the installer flashes the tip of main rather than the newest
-  # tagged release. The device's updater reads the same per-slug manifest from Pages
-  # (SigenStorPuck/<slug>/manifest.json), so the installer and OTA stay in step —
-  # both advertise whatever main's PUCK_FW_VERSION says, gated on that bump.
+  # tagged release. The panel's updater reads the same manifest from Pages
+  # (SigenStorPanel/<slug>/manifest.json), so the installer and updates stay in
+  # step: both advertise whatever main's PUCK_FW_VERSION says. The version bump is
+  # the gate; pushing to main without one publishes nothing a panel will install.
   #
-  # Tags only, deliberately. The page and the binary it flashes have to be served
-  # from the same origin — GitHub release assets send no CORS header, so a page
-  # fetching them cross-origin is blocked and flashing never starts. Publishing on
-  # every main push would leave Pages advertising a manifest with no binary next to
-  # it, so it only ever deploys as part of cutting a release.
+  # The page and the binary it flashes have to be served from the same origin:
+  # GitHub release assets send no CORS header, so a page fetching them from
+  # another origin is blocked and flashing never starts. That is why the firmware
+  # is published here and not only on the Release.
   pages:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && vars.PAGES_ENABLED == 'true'
     runs-on: ubuntu-latest
     needs: build
     permissions:
       # A permissions block replaces the defaults rather than adding to them, so
-      # contents: read has to be spelled out — without it actions/checkout cannot
-      # read a private repository and fails with "repository not found", which reads
-      # like the repo is missing rather than like a permissions problem.
+      # contents: read has to be spelled out. Without it actions/checkout cannot
+      # read a private repository and fails with "repository not found", which
+      # reads like the repo is missing rather than like a permissions problem.
       contents: read
       # download-artifact reads this run's artifacts through the Actions API.
       actions: read
