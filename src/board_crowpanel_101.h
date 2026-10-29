@@ -132,23 +132,20 @@ static constexpr int8_t PUCK_SDIO_C6_RESET = 32;
 
 // --------------------------------------------------------- presence sensor ---
 //
-// Optional: a Waveshare HMMD mmWave sensor on the J7 IO breakout header (2x12,
-// 2.54 mm), whose pins are labelled by IO number on the board: sensor TX to IO2,
-// RX to IO3, plus 3V3 and GND. Four pins in a row down its odd side:
-//   J7 pin 5  3V3     -> sensor 3V3   (3.0-3.6 V, about 50 mA)
-//   J7 pin 7  GND     -> sensor GND
-//   J7 pin 9  GPIO2   -> sensor TX    (our RX)
-//   J7 pin 11 GPIO3   -> sensor RX    (our TX)
-// Its OT2 presence pin is not needed: presence comes over the UART, which the P4
-// routes to any GPIO. In the V1.2 schematic every GPIO on J7 goes to the header
-// alone. GPIO2 and 3 are also the chip's pin JTAG, which nothing here uses.
-// Avoid J7's even pins 2, 4 and 6 (5 V) and pin 17 (GPIO25, the P4's USB).
+// Optional: a Waveshare HMMD mmWave sensor on the UART1 socket, J2 (4-pin HY2.0,
+// 2.0 mm, beside the WiFi module). Nets RXD1 and TXD1 go nowhere else:
+//   J2 pin 1  RXD1 = GPIO48  -> sensor TX    (our RX)
+//   J2 pin 2  TXD1 = GPIO47  -> sensor RX    (our TX)
+//   J2 pin 3  3V3            -> sensor 3V3   (3.0-3.6 V, about 50 mA)
+//   J2 pin 4  GND            -> sensor GND
+// Its OT2 presence pin is not needed: presence comes over the UART.
 //
-// The UART1 socket, J2 (HY2.0), is the other place: pin 1 RXD1 = GPIO48 (sensor
-// TX), pin 2 TXD1 = GPIO47 (sensor RX), pin 3 3V3, pin 4 GND. Set RX 48, TX 47 to
-// use it instead.
-static constexpr int8_t PUCK_PRESENCE_RX = 2;
-static constexpr int8_t PUCK_PRESENCE_TX = 3;
+// The J7 IO breakout header is the other place, since the P4 routes its UART to
+// any GPIO: IO2 (pin 9, sensor TX) and IO3 (pin 11, sensor RX), with 3V3 on pin 5
+// and GND on pin 7. Set RX 2, TX 3 to use it instead. Avoid J7's even pins 2, 4
+// and 6 (5 V) and pin 17 (GPIO25, the P4's USB).
+static constexpr int8_t PUCK_PRESENCE_RX = 48;
+static constexpr int8_t PUCK_PRESENCE_TX = 47;
 static constexpr uint32_t PUCK_PRESENCE_BAUD = 115200;
 // The sensor reports about every 100 ms. Silence this long means it is not
 // there, or has stopped, and the panel stops acting on it.
