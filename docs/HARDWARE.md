@@ -238,12 +238,20 @@ metal no. Waveshare has a radome design guide.
 
 ## Also on the board (unused for now)
 
-- **Speaker and amp:** I2S LRCLK 21, BCLK 22, SDATA 23; amp enable GPIO30.
 - **PDM microphone.**
 - **microSD slot.**
 - **Wireless module socket** (LoRa / nRF).
 
-The speaker could give alerts later, as claude-gadget's `sound.cpp` does. Not planned.
+## Speaker
+
+An I2S class-D amplifier, with no codec in front of it, drives both speaker sockets: 16-bit
+stereo from the P4, no MCLK, nothing to configure over I2C. Pins from Elecrow's speaker
+example: **LRCLK GPIO21, BCLK GPIO22, data GPIO23, amp enable GPIO30, active LOW** (high
+mutes it). Both sockets have speakers on the first board.
+
+`src/device/sound.cpp` synthesises its tones at 16 kHz, as claude-gadget's `sound.cpp`
+does, and holds the amp on for 3 s after a sound so a run of taps is one switch-on. It
+takes about 16 KB of internal RAM (I2S DMA buffers, its task's stack).
 
 ## Settled on the first board (2026-10-28, V1.2)
 

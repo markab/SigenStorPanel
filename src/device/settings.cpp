@@ -35,6 +35,9 @@ constexpr const char* KEY_SCR_ROT = "scr_rot";
 constexpr const char* KEY_SCR_KNOWN = "scr_known";
 constexpr uint8_t SCREENS_BEFORE_KNOWN_KEY = 7;
 constexpr const char* KEY_UPDATES = "updates";
+constexpr const char* KEY_SOUND_VOLUME = "snd_vol";
+constexpr const char* KEY_SOUND_MASK = "snd_mask";
+constexpr const char* KEY_SOUND_RESERVE = "snd_resv";
 constexpr const char* KEY_SOURCE = "source";
 constexpr const char* KEY_HOSTNAME = "hostname";
 constexpr const char* KEY_MB_HOST = "mb_host";
@@ -110,6 +113,9 @@ void settings_begin() {
     }
   }
   s_settings.check_updates = prefs.getBool(KEY_UPDATES, s_settings.check_updates);
+  s_settings.sound_volume = prefs.getUChar(KEY_SOUND_VOLUME, s_settings.sound_volume);
+  s_settings.sound_mask = prefs.getUChar(KEY_SOUND_MASK, s_settings.sound_mask);
+  s_settings.sound_reserve_pct = prefs.getUChar(KEY_SOUND_RESERVE, s_settings.sound_reserve_pct);
 
   // Absent means the device predates this key, not that it wants the default.
   //
@@ -638,5 +644,23 @@ bool settings_set_check_updates(bool enabled) {
   prefs.putBool(KEY_UPDATES, enabled);
   prefs.end();
   s_settings.check_updates = enabled;
+  return true;
+}
+
+bool settings_set_sound(uint8_t volume, uint8_t mask, uint8_t reserve_pct) {
+  if (volume > 100 || reserve_pct > 100) {
+    return false;
+  }
+  Preferences prefs;
+  if (!prefs.begin(NAMESPACE, /*readOnly=*/false)) {
+    return false;
+  }
+  prefs.putUChar(KEY_SOUND_VOLUME, volume);
+  prefs.putUChar(KEY_SOUND_MASK, mask);
+  prefs.putUChar(KEY_SOUND_RESERVE, reserve_pct);
+  prefs.end();
+  s_settings.sound_volume = volume;
+  s_settings.sound_mask = mask;
+  s_settings.sound_reserve_pct = reserve_pct;
   return true;
 }

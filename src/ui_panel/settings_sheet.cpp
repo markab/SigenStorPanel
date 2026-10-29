@@ -13,8 +13,8 @@ namespace {
 using namespace sheet_kit;
 
 constexpr int PAGE_COUNT = static_cast<int>(SheetPage::Count);
-const char* const PAGE_NAMES[PAGE_COUNT] = {"Display", "Screens", "WiFi", "Data", "Solar",
-                                            "Device"};
+const char* const PAGE_NAMES[PAGE_COUNT] = {"Display", "Sound", "Screens", "WiFi",
+                                            "Data",    "Solar", "Device"};
 
 // Steps for the sliders that pick from a list rather than a range.
 constexpr uint32_t DIM_AFTER_STEPS[] = {0, 15, 30, 60, 120, 300, 600, 1800};
@@ -881,31 +881,6 @@ void tick(lv_timer_t* /*timer*/) {
 
 // ------------------------------------------------------------------- build ---
 
-lv_obj_t* page_body(lv_obj_t* tile) {
-  lv_obj_t* body = plain(tile);
-  lv_obj_set_size(body, SHEET_W, LV_SIZE_CONTENT);
-  lv_obj_set_style_pad_hor(body, PAGE_PAD_X, LV_PART_MAIN);
-  lv_obj_set_style_pad_top(body, PAGE_PAD_TOP, LV_PART_MAIN);
-  lv_obj_set_flex_flow(body, LV_FLEX_FLOW_ROW);
-  lv_obj_set_style_pad_column(body, CARD_GAP, LV_PART_MAIN);
-  return body;
-}
-
-// A caption above a slider, with the value at the right of the caption line.
-lv_obj_t* labelled_slider(lv_obj_t* parent, const char* name, int32_t min, int32_t max,
-                          lv_obj_t** value) {
-  lv_obj_t* line = row(parent);
-  text(line, FONT_ROW, PUCK_COLOUR_TEXT, name);
-  *value = text(line, FONT_ROW, PUCK_COLOUR_TEXT, "");
-  return slider(parent, min, max);
-}
-
-lv_obj_t* labelled_toggle(lv_obj_t* parent, const char* name) {
-  lv_obj_t* line = row(parent);
-  text(line, FONT_ROW, PUCK_COLOUR_TEXT, name);
-  return toggle(line);
-}
-
 // "FROM   [-] 22:30 [+]" on one line.
 lv_obj_t* time_stepper(lv_obj_t* parent, const char* name, intptr_t base, lv_obj_t** value) {
   lv_obj_t* outer = row(parent);
@@ -1311,11 +1286,13 @@ void build_header(lv_obj_t* parent) {
   lv_obj_t* tabs = plain(parent);
   lv_obj_set_size(tabs, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(tabs, LV_FLEX_FLOW_ROW);
-  lv_obj_set_style_pad_column(tabs, 6, LV_PART_MAIN);
+  lv_obj_set_style_pad_column(tabs, 4, LV_PART_MAIN);
   lv_obj_align(tabs, LV_ALIGN_TOP_MID, 0, 26);
   for (int i = 0; i < PAGE_COUNT; ++i) {
     lv_obj_t* tab = button(tabs, PAGE_NAMES[i], COLOUR_CARD, PUCK_COLOUR_MUTED);
     lv_obj_set_style_pad_ver(tab, 10, LV_PART_MAIN);
+    // Narrower than a button's own padding, so seven fit clear of Done.
+    lv_obj_set_style_pad_hor(tab, 16, LV_PART_MAIN);
     lv_obj_set_style_text_font(lv_obj_get_child(tab, 0), FONT_ROW, LV_PART_MAIN);
     lv_obj_add_event_cb(tab, on_tab, LV_EVENT_CLICKED,
                         reinterpret_cast<void*>(static_cast<intptr_t>(i)));
@@ -1846,12 +1823,13 @@ void settings_sheet_create(lv_obj_t* parent, const SheetActions& actions) {
     tiles[i] = lv_tileview_add_tile(s_pages, static_cast<uint8_t>(i), 0, LV_DIR_HOR);
     lv_obj_clear_flag(tiles[i], LV_OBJ_FLAG_SCROLLABLE);
   }
-  build_display(tiles[0]);
-  build_screens(tiles[1]);
-  build_wifi(tiles[2]);
-  build_data(tiles[3]);
-  plant_build_page(tiles[4]);
-  build_device(tiles[5]);
+  build_display(tiles[static_cast<int>(SheetPage::Display)]);
+  sound_build_page(tiles[static_cast<int>(SheetPage::Sound)]);
+  build_screens(tiles[static_cast<int>(SheetPage::Screens)]);
+  build_wifi(tiles[static_cast<int>(SheetPage::Wifi)]);
+  build_data(tiles[static_cast<int>(SheetPage::Data)]);
+  plant_build_page(tiles[static_cast<int>(SheetPage::Solar)]);
+  build_device(tiles[static_cast<int>(SheetPage::Device)]);
   lv_obj_add_event_cb(s_pages, on_page_changed, LV_EVENT_VALUE_CHANGED, nullptr);
   lv_obj_set_tile_id(s_pages, 0, 0, LV_ANIM_OFF);
 
@@ -2105,6 +2083,10 @@ void settings_sheet_show_entry(SheetEntry entry) {
   refresh_join();
   lv_obj_move_foreground(s_join_panel);
   lv_obj_clear_flag(s_join_panel, LV_OBJ_FLAG_HIDDEN);
+}
+
+void settings_sheet_set_sound(const SheetSound& sound) {
+  sound_set(sound);
 }
 
 void settings_sheet_set_solar(const SheetSolar& solar) {

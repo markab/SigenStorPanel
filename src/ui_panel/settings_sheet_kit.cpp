@@ -279,6 +279,33 @@ const char* screen_name(PuckScreen screen) {
   }
 }
 
+// ------------------------------------------------------------------- pages ---
+
+lv_obj_t* page_body(lv_obj_t* tile) {
+  lv_obj_t* body = plain(tile);
+  lv_obj_set_size(body, SHEET_W, LV_SIZE_CONTENT);
+  lv_obj_set_style_pad_hor(body, PAGE_PAD_X, LV_PART_MAIN);
+  lv_obj_set_style_pad_top(body, PAGE_PAD_TOP, LV_PART_MAIN);
+  lv_obj_set_flex_flow(body, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(body, CARD_GAP, LV_PART_MAIN);
+  return body;
+}
+
+// A caption above a slider, with the value at the right of the caption line.
+lv_obj_t* labelled_slider(lv_obj_t* parent, const char* name, int32_t min, int32_t max,
+                          lv_obj_t** value) {
+  lv_obj_t* line = row(parent);
+  text(line, FONT_ROW, PUCK_COLOUR_TEXT, name);
+  *value = text(line, FONT_ROW, PUCK_COLOUR_TEXT, "");
+  return slider(parent, min, max);
+}
+
+lv_obj_t* labelled_toggle(lv_obj_t* parent, const char* name) {
+  lv_obj_t* line = row(parent);
+  text(line, FONT_ROW, PUCK_COLOUR_TEXT, name);
+  return toggle(line);
+}
+
 // ----------------------------------------------------------------- confirm ---
 
 void disarm() {

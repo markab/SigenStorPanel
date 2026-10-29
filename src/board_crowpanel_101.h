@@ -153,6 +153,22 @@ static constexpr uint32_t PUCK_PRESENCE_BAUD = 115200;
 // only on a change.
 static constexpr uint32_t PUCK_PRESENCE_LOST_MS = 10000;
 
+// ----------------------------------------------------------------- speaker ---
+
+// An I2S class-D amplifier driving both speaker sockets, with no codec in front
+// of it: 16-bit stereo straight from the P4, no MCLK. Its enable line is active
+// LOW. Pins and polarity from Elecrow's speaker example (facts only; see
+// CLAUDE.md on their code).
+static constexpr int8_t PUCK_SPEAKER_BCLK = 22;
+static constexpr int8_t PUCK_SPEAKER_LRCLK = 21;
+static constexpr int8_t PUCK_SPEAKER_DOUT = 23;
+static constexpr int8_t PUCK_SPEAKER_AMP_EN = 30;
+static constexpr bool PUCK_SPEAKER_AMP_ON_LEVEL = false;  // LOW enables
+static constexpr uint32_t PUCK_SPEAKER_RATE = 16000;
+// Keeps the amp on this long after a sound, so a run of taps does not switch it
+// on and off (and pop) for each one.
+static constexpr uint32_t PUCK_SPEAKER_HOLD_MS = 3000;
+
 // ----------------------------------------------------------------- serial ---
 
 // UART0 through the CH341 bridge, not native USB-CDC.

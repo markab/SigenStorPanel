@@ -7,6 +7,7 @@
 #include "ha_catalog.h"
 #include "kiosk_code.h"
 #include "presence_parse.h"
+#include "sound_events.h"
 
 namespace {
 
@@ -153,6 +154,80 @@ void test_ha_catalog() {
   check(ha_catalog_parse(text, strlen(text), list, 2) == 2, "catalog: stops at the limit");
 }
 
+namespace {
+
+Snapshot battery_at(float soc) {
+  Snapshot s;
+  s.valid = true;
+  s.battery.soc_pct.known = true;
+  s.battery.soc_pct.value = soc;
+  return s;
+}
+
+Snapshot ev_at(float kw) {
+  Snapshot s;
+  s.valid = true;
+  s.power.ev.known = true;
+  s.power.ev.value = kw;
+  return s;
+}
+
+constexpr uint8_t FULL = sound_bit(SoundCue::BatteryFull);
+constexpr uint8_t RESERVE = sound_bit(SoundCue::BatteryReserve);
+constexpr uint8_t EV_START = sound_bit(SoundCue::EvStart);
+constexpr uint8_t EV_STOP = sound_bit(SoundCue::EvStop);
+
+void test_sound_battery() {
+  printf("sounds, battery\n");
+  SoundEvents events;
+  check(events.update(battery_at(100), 10, 0) == 0, "booting beside a full battery is quiet");
+  check(events.update(battery_at(100), 10, 5000) == 0, "and stays quiet while it is full");
+  check(events.update(battery_at(98), 10, 10000) == 0 && events.update(battery_at(100), 10, 15000) == 0,
+        "a dip to 98% does not re-arm full");
+  check(events.update(battery_at(96), 10, 20000) == 0, "below 97% re-arms full");
+  check(events.update(battery_at(100), 10, 25000) == FULL, "full chimes on reaching 100%");
+  check(events.update(battery_at(100), 10, 30000) == 0, "once");
+
+  SoundEvents low;
+  check(low.update(battery_at(40), 10, 0) == 0, "first reading only learns");
+  check(low.update(battery_at(11), 10, 5000) == 0, "above the reserve is quiet");
+  check(low.update(battery_at(10), 10, 10000) == RESERVE, "reaching the reserve chimes");
+  check(low.update(battery_at(9), 10, 15000) == 0 && low.update(battery_at(11), 10, 20000) == 0 &&
+            low.update(battery_at(10), 10, 25000) == 0,
+        "hovering around the reserve does not chime again");
+  check(low.update(battery_at(13), 10, 30000) == 0 && low.update(battery_at(10), 10, 35000) == RESERVE,
+        "3% above re-arms it");
+  check(low.update(battery_at(8), 0, 40000) == 0, "a reserve of 0 never chimes");
+
+  SoundEvents unknown;
+  Snapshot blank;
+  blank.valid = true;
+  check(unknown.update(battery_at(50), 10, 0) == 0 && unknown.update(blank, 10, 5000) == 0 &&
+            unknown.update(battery_at(10), 10, 10000) == RESERVE,
+        "an unknown reading changes nothing");
+}
+
+void test_sound_ev() {
+  printf("sounds, car charging\n");
+  SoundEvents events;
+  check(events.update(ev_at(0), 10, 0) == 0, "first reading only learns");
+  check(events.update(ev_at(7.2f), 10, 5000) == 0, "one reading is not a start");
+  check(events.update(ev_at(0.1f), 10, 10000) == 0 && events.update(ev_at(7.2f), 10, 15000) == 0,
+        "a blip resets the wait");
+  check(events.update(ev_at(7.2f), 10, 40000) == 0, "29 s in is not yet a start");
+  check(events.update(ev_at(7.1f), 10, 45000) == EV_START, "30 s of charging is a start");
+  check(events.update(ev_at(0.0f), 10, 50000) == 0 && events.update(ev_at(0.0f), 10, 100000) == 0,
+        "a pause under a minute is not a stop");
+  check(events.update(ev_at(0.0f), 10, 110000) == EV_STOP, "a minute without charging is a stop");
+
+  SoundEvents charging;
+  check(charging.update(ev_at(7.0f), 10, 0) == 0 && charging.update(ev_at(0.0f), 10, 5000) == 0 &&
+            charging.update(ev_at(0.0f), 10, 65000) == EV_STOP,
+        "booting mid-charge: no start, but the stop is heard");
+}
+
+}  // namespace
+
 int run_panel_selftest() {
   s_checks = 0;
   s_failures = 0;
@@ -160,6 +235,8 @@ int run_panel_selftest() {
   test_presence_frames();
   test_kiosk_code();
   test_ha_catalog();
+  test_sound_battery();
+  test_sound_ev();
   printf("\n%d panel checks, %d failed\n", s_checks, s_failures);
   return s_failures == 0 ? 0 : 1;
 }

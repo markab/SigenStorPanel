@@ -16,6 +16,7 @@
 #include "data_source.h"
 #include "ha_catalog.h"
 #include "solar_source.h"
+#include "sound_events.h"
 
 static constexpr int SHEET_MAX_NETWORKS = 5;
 static constexpr int SHEET_MAX_SCAN = 16;
@@ -25,6 +26,7 @@ static constexpr int SHEET_TEXT = 64;
 
 enum class SheetPage : uint8_t {
   Display = 0,
+  Sound,
   Screens,
   Wifi,
   Data,
@@ -218,12 +220,23 @@ struct SheetDevice {
 // What the owner does when someone changes something. Any of these may be null.
 // None of them may block: anything that touches the network is a request for
 // the poll task to pick up (CLAUDE.md, "Never do network work on the LVGL thread").
+// The Sound page. `on` holds sound_bit()s of SoundCue (src/sound_events.h).
+struct SheetSound {
+  uint8_t volume = 40;       // 0-100; 0 silences everything
+  uint8_t on = 0;
+  uint8_t reserve_pct = 10;  // "Battery at reserve" plays at this level
+};
+
 struct SheetActions {
   // While a brightness slider is being dragged: set the backlight, save nothing.
   void (*preview_brightness)(uint8_t level) = nullptr;
   // On release, and on every other Display-page change: save.
   void (*set_display)(const SheetDisplay& display) = nullptr;
   void (*set_screens)(const SheetScreens& screens) = nullptr;
+  // Every Sound-page change saves at once. Then `preview`, so the sound being
+  // adjusted is heard: the volume's blip, or the sound just switched on.
+  void (*set_sound)(const SheetSound& sound) = nullptr;
+  void (*preview_sound)(SoundCue cue) = nullptr;
   void (*forget_network)(const char* ssid) = nullptr;
   // The picker asks for a fresh list; results arrive by settings_sheet_set_scan().
   void (*start_scan)() = nullptr;
@@ -268,6 +281,7 @@ void settings_sheet_create(lv_obj_t* parent, const SheetActions& actions);
 void settings_sheet_set_display(const SheetDisplay& display);
 void settings_sheet_set_presence(const SheetPresence& presence);
 void settings_sheet_set_screens(const SheetScreens& screens);
+void settings_sheet_set_sound(const SheetSound& sound);
 void settings_sheet_set_wifi(const SheetWifi& wifi);
 void settings_sheet_set_data(const SheetData& data);
 void settings_sheet_set_device(const SheetDevice& device);

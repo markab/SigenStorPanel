@@ -21,7 +21,9 @@
 #include "device/presence.h"
 #include "device/settings.h"
 #include "device/settings_bridge.h"
+#include "device/sound.h"
 #include "device/updater.h"
+#include "device/updater_progress.h"
 #include "display.h"
 #include "screen_window.h"
 #include "snapshot.h"
@@ -182,7 +184,7 @@ void apply_idle_dim() {
 // the day charts are anchored to. Until one arrives the window is read against
 // UTC, which in Britain is right for half the year and an hour out for the other
 // half.
-void apply_screen_schedule() {
+bool in_overnight_window() {
   const Settings& settings = settings_get();
   const time_t now = time(nullptr);
 
@@ -190,14 +192,17 @@ void apply_screen_schedule() {
   // Blanking on it would leave a device that has lost NTP dark with no way to
   // tell why. The same 2024 floor sigen_api.cpp uses to judge certificates.
   const bool can_tell_the_time = now > 1704067200;
-
-  bool overnight = false;
-  if (settings.screen_off_set && can_tell_the_time) {
-    const uint16_t minute =
-        screen_local_minute(static_cast<uint32_t>(now), poller_tz_offset_min());
-    overnight = screen_window_contains(settings.screen_off_start_min, settings.screen_off_end_min,
-                                       minute);
+  if (!settings.screen_off_set || !can_tell_the_time) {
+    return false;
   }
+  const uint16_t minute = screen_local_minute(static_cast<uint32_t>(now), poller_tz_offset_min());
+  return screen_window_contains(settings.screen_off_start_min, settings.screen_off_end_min,
+                                minute);
+}
+
+void apply_screen_schedule() {
+  const Settings& settings = settings_get();
+  const bool overnight = in_overnight_window();
 
   // The room sensor, when there is one answering: nobody seen for the set time.
   // A sensor that has gone quiet is not believed, so a fault cannot leave the
@@ -259,6 +264,18 @@ void refresh_ui() {
   }
   if (snapshot_changed) {
     ui_update(snapshot);
+    // Battery full or at its reserve, a car starting or stopping: each new
+    // reading is judged once, here, whether or not anyone hears the result.
+    static SoundEvents sound_events;
+    const uint8_t fired =
+        sound_events.update(snapshot, settings_get().sound_reserve_pct, millis());
+    for (SoundCue cue : {SoundCue::BatteryFull, SoundCue::BatteryReserve, SoundCue::EvStart,
+                         SoundCue::EvStop}) {
+      if ((fired & sound_bit(cue)) != 0) {
+        Serial.printf("[sound] reading calls for cue %u\n", static_cast<unsigned>(cue));
+        sound_play(cue);
+      }
+    }
   }
 
   seen_snapshot_generation = snapshot_generation;
@@ -329,6 +346,19 @@ void setup() {
   power_begin();
   buttons_begin();
   presence_begin();
+  sound_begin();
+  // Taps are heard: each click LVGL recognises. A swipe is not a click, so
+  // swiping through the screens stays silent.
+  for (lv_indev_t* indev = lv_indev_get_next(nullptr); indev != nullptr;
+       indev = lv_indev_get_next(indev)) {
+    if (indev->driver->type == LV_INDEV_TYPE_POINTER) {
+      indev->driver->feedback_cb = [](lv_indev_drv_t* /*driver*/, uint8_t event) {
+        if (event == LV_EVENT_CLICKED) {
+          sound_play(SoundCue::Tap);
+        }
+      };
+    }
+  }
 
   // Which screens exist is settled here and not revisited: the tileview's tiles
   // are built once, so the masks and the data source both apply on the next boot
@@ -366,6 +396,9 @@ void setup() {
   // up, rather than black for a couple of seconds.
   lv_timer_handler();
   log_stage("first frame");
+  // With the splash up. The clock is not set yet, so the overnight hours cannot
+  // keep this one quiet; a restart in the night is the rare case.
+  sound_play(SoundCue::Boot);
 
   // Neither applied while the drawing side is blocked: skewing touch to match a
   // rotation that is not on screen would put every tap 2.5 degrees out for no
@@ -426,6 +459,13 @@ void loop() {
 
   apply_idle_dim();
   apply_screen_schedule();
+  // Quiet in the overnight hours, while the room sensor sees nobody, and through
+  // an install, which needs every byte of internal RAM it can get.
+  {
+    const PresenceStatus room = presence_status();
+    sound_set_quiet(in_overnight_window() || (room.connected && !room.present) ||
+                    updater_wants_internal_ram());
+  }
   lv_timer_handler();
   delay(5);
 }

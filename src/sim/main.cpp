@@ -697,6 +697,13 @@ void seed_sheet() {
   s_sheet_display.screen_off_end_min = 6 * 60 + 30;
   settings_sheet_set_display(s_sheet_display);
 
+  // The panel's defaults, but with taps off, as someone might have them.
+  SheetSound sound;
+  sound.volume = 40;
+  sound.on = 0x3F & static_cast<uint8_t>(~sound_bit(SoundCue::Tap));
+  sound.reserve_pct = 10;
+  settings_sheet_set_sound(sound);
+
   // As if a room sensor were fitted and someone were standing in front of it.
   SheetPresence presence;
   presence.connected = true;
@@ -784,6 +791,13 @@ SheetActions sim_sheet_actions() {
            display.screen_off_end_min % 60, display.flipped ? "yes" : "no",
            static_cast<unsigned>(display.presence_off_after_s));
     settings_sheet_set_display(s_sheet_display);
+  };
+  actions.set_sound = [](const SheetSound& sound) {
+    printf("[sim] sound: volume %u%%, on 0x%02X, reserve %u%%\n", sound.volume, sound.on,
+           sound.reserve_pct);
+  };
+  actions.preview_sound = [](SoundCue cue) {
+    printf("[sim] sound preview %u\n", static_cast<unsigned>(cue));
   };
   actions.set_screens = [](const SheetScreens& screens) {
     s_sheet_screens = screens;
@@ -1293,7 +1307,7 @@ int run_sheet_shots(const std::string& directory) {
   drag(512, 460, 512, 160);
   check(settings_sheet_is_open(), "swipe up opens it");
   drag(820, 330, 200, 330);
-  check(settings_sheet_page() == SheetPage::Screens, "swipe left goes to the next page");
+  check(settings_sheet_page() == SheetPage::Sound, "swipe left goes to the next page");
   drag(512, 140, 512, 460);
   check(!settings_sheet_is_open(), "swipe down closes it");
   ui_show_screen(2);
@@ -1336,8 +1350,9 @@ int run_sheet_shots(const std::string& directory) {
   ui_show_screen(0);
   run_frames(100);
 
-  static const char* const NAMES[] = {"sheet_1_display", "sheet_2_screens", "sheet_3_wifi",
-                                      "sheet_4_data",    "sheet_5_solar",   "sheet_6_device"};
+  static const char* const NAMES[] = {"sheet_1_display", "sheet_2_sound", "sheet_3_screens",
+                                      "sheet_4_wifi",    "sheet_5_data",  "sheet_6_solar",
+                                      "sheet_7_device"};
   for (int page = 0; page < static_cast<int>(SheetPage::Count); ++page) {
     settings_sheet_open(static_cast<SheetPage>(page), false);
     run_frames(100);
@@ -1352,11 +1367,11 @@ int run_sheet_shots(const std::string& directory) {
   settings_sheet_set_data(s_sheet_data);
   settings_sheet_open(SheetPage::Data, false);
   run_frames(100);
-  failures += save_shot(directory, "sheet_4b_data_other_source") ? 0 : 1;
+  failures += save_shot(directory, "sheet_5b_data_other_source") ? 0 : 1;
   if (s_sheet_data.source == DataSource::Modbus) {
     settings_sheet_show_keypad(true);
     run_frames(50);
-    failures += save_shot(directory, "sheet_4c_keypad") ? 0 : 1;
+    failures += save_shot(directory, "sheet_5c_keypad") ? 0 : 1;
     settings_sheet_show_keypad(false);
   }
   s_sheet_data = seeded;
@@ -1373,7 +1388,7 @@ int run_sheet_shots(const std::string& directory) {
   }
   settings_sheet_type_key('\b');
   run_frames(50);
-  failures += save_shot(directory, "sheet_4d_enter_link") ? 0 : 1;
+  failures += save_shot(directory, "sheet_5d_enter_link") ? 0 : 1;
   const auto forget = []() {
     s_sheet_base.clear();
     s_sheet_code.clear();
@@ -1399,7 +1414,7 @@ int run_sheet_shots(const std::string& directory) {
   check(!settings_sheet_typing() && s_sheet_base == "https://sigen.example.com" &&
             s_sheet_data.server_code[0] == '\0',
         "the server saves without a code");
-  failures += save_shot(directory, "sheet_4g_data_no_code") ? 0 : 1;
+  failures += save_shot(directory, "sheet_5g_data_no_code") ? 0 : 1;
   settings_sheet_show_entry(SheetEntry::KioskCode);
   for (const char* c = "K7MQ 4XRP 9TBZ H2WD C8N"; *c; ++c) {
     settings_sheet_type_key(*c);
@@ -1408,7 +1423,7 @@ int run_sheet_shots(const std::string& directory) {
   check(settings_sheet_typing() && s_sheet_code.empty(), "a short code is refused");
   settings_sheet_type_key('F');
   run_frames(50);
-  failures += save_shot(directory, "sheet_4h_enter_code") ? 0 : 1;
+  failures += save_shot(directory, "sheet_5h_enter_code") ? 0 : 1;
   settings_sheet_type_key('\r');
   run_frames(50);
   check(!settings_sheet_typing() && s_sheet_code == "k7mq4xrp9tbzh2wdc8nf" &&
@@ -1422,27 +1437,27 @@ int run_sheet_shots(const std::string& directory) {
   settings_sheet_open(SheetPage::Data, false);
   settings_sheet_show_devices();
   run_frames(50);
-  failures += save_shot(directory, "sheet_4e_modbus_devices") ? 0 : 1;
+  failures += save_shot(directory, "sheet_5e_modbus_devices") ? 0 : 1;
   settings_sheet_close(false);
   settings_sheet_open(SheetPage::Solar, false);
   run_frames(50);
-  failures += save_shot(directory, "sheet_5b_solar_modbus") ? 0 : 1;
+  failures += save_shot(directory, "sheet_6b_solar_modbus") ? 0 : 1;
   settings_sheet_show_array(0);
   run_frames(50);
-  failures += save_shot(directory, "sheet_5c_array") ? 0 : 1;
+  failures += save_shot(directory, "sheet_6c_array") ? 0 : 1;
   settings_sheet_close(false);
   s_sheet_data.source = DataSource::HomeAssistant;
   settings_sheet_set_data(s_sheet_data);
   settings_sheet_open(SheetPage::Data, false);
   run_frames(50);
-  failures += save_shot(directory, "sheet_4f_data_home_assistant") ? 0 : 1;
+  failures += save_shot(directory, "sheet_5f_data_home_assistant") ? 0 : 1;
   // The sensor list fills in once Home Assistant has answered.
   settings_sheet_show_ha_sensors();
   run_frames(1000);
-  failures += save_shot(directory, "sheet_4g_ha_sensors") ? 0 : 1;
+  failures += save_shot(directory, "sheet_5g_ha_sensors") ? 0 : 1;
   settings_sheet_show_ha_picker(static_cast<int>(HaEntity::HomePower));
   run_frames(50);
-  failures += save_shot(directory, "sheet_4h_ha_picker") ? 0 : 1;
+  failures += save_shot(directory, "sheet_5h_ha_picker") ? 0 : 1;
   // A tap on a row saves that sensor for the role: the second row, by name.
   drag(300, 221, 300, 221);
   check(strcmp(s_sheet_ha_sensors.entity[static_cast<int>(HaEntity::HomePower)],
@@ -1452,7 +1467,7 @@ int run_sheet_shots(const std::string& directory) {
   settings_sheet_open(SheetPage::Data, false);
   settings_sheet_open(SheetPage::Solar, false);
   run_frames(50);
-  failures += save_shot(directory, "sheet_5d_solar_home_assistant") ? 0 : 1;
+  failures += save_shot(directory, "sheet_6d_solar_home_assistant") ? 0 : 1;
   settings_sheet_close(false);
   s_sheet_data = before_plant;
   settings_sheet_set_data(s_sheet_data);
@@ -1462,10 +1477,10 @@ int run_sheet_shots(const std::string& directory) {
   settings_sheet_open(SheetPage::Device, false);
   push_sheet_device();
   run_frames(100);
-  failures += save_shot(directory, "sheet_6b_update") ? 0 : 1;
+  failures += save_shot(directory, "sheet_7b_update") ? 0 : 1;
   settings_sheet_show_entry(SheetEntry::DeviceName);
   run_frames(50);
-  failures += save_shot(directory, "sheet_6c_device_name") ? 0 : 1;
+  failures += save_shot(directory, "sheet_7c_device_name") ? 0 : 1;
   settings_sheet_close(false);
   s_sheet_device.update = SheetUpdate::UpToDate;
   push_sheet_device();
@@ -1473,21 +1488,21 @@ int run_sheet_shots(const std::string& directory) {
   // Adding a network on the glass: the picker, the password, a refusal, success.
   settings_sheet_show_picker();
   run_frames(1500);
-  failures += save_shot(directory, "sheet_3b_picker") ? 0 : 1;
+  failures += save_shot(directory, "sheet_4b_picker") ? 0 : 1;
   settings_sheet_show_password("BT-7HQ2KX", true);
   settings_sheet_type_password("wrongpass");
   run_frames(50);
-  failures += save_shot(directory, "sheet_3c_password") ? 0 : 1;
+  failures += save_shot(directory, "sheet_4c_password") ? 0 : 1;
   settings_sheet_press_join();
   run_frames(1800);
-  failures += save_shot(directory, "sheet_3d_wrong_password") ? 0 : 1;
+  failures += save_shot(directory, "sheet_4d_wrong_password") ? 0 : 1;
   settings_sheet_show_password("BT-7HQ2KX", true);
   settings_sheet_type_password("correct horse");
   settings_sheet_press_join();
   run_frames(1800);
   check(s_sheet_wifi.saved_count > 0 && strcmp(s_sheet_wifi.saved[0].ssid, "BT-7HQ2KX") == 0,
         "a joined network is saved first");
-  failures += save_shot(directory, "sheet_3e_joined") ? 0 : 1;
+  failures += save_shot(directory, "sheet_4e_joined") ? 0 : 1;
 
   settings_sheet_close(false);
 

@@ -234,9 +234,9 @@ connection.
 
 ## Settings
 
-Everything below is in the sheet that slides up over the screens. It has six pages,
-**Display**, **Screens**, **WiFi**, **Data**, **Solar** and **Device**, and you swipe
-left and right between them.
+Everything below is in the sheet that slides up over the screens. It has seven pages,
+**Display**, **Sound**, **Screens**, **WiFi**, **Data**, **Solar** and **Device**, and you
+swipe left and right between them.
 
 Most changes take effect straight away. The ones that need a restart are marked ↻. Changing
 one puts up a bar listing what is waiting, with a button to restart.
@@ -253,6 +253,24 @@ one puts up a bar listing what is waiting, with a button to restart.
 <tr><td><strong>Off when empty for</strong></td><td>With the optional room sensor (see <strong>Room sensor</strong> below): how long the room must be empty, with nobody touching the panel, before the backlight goes off. Never, or 1 to 60 minutes. Someone walking in brings it straight back. Below the slider is what the sensor sees right now.</td></tr>
 <tr><td><strong>Overnight: Backlight off, From, Until</strong></td><td>Hours to switch the backlight off completely. <strong>Off means off, not dimmed.</strong> A touch lights it again for a while. Inside these hours, the room sensor does not wake it.</td></tr>
 <tr><td><strong>Upside down</strong> ↻</td><td>For hanging the panel with the cable at the top.</td></tr>
+</table>
+
+### Sound
+
+<p align="center"><img src="docs/img/settings-sound.png" width="480" alt="The Sound page"></p>
+
+Short, quiet chimes through the panel's speakers. **They stay silent in the overnight
+hours set under Display, and while the room sensor sees nobody**, so they are only heard
+by someone who is there. Switching a sound on plays it, so you know which is which.
+
+<table>
+<tr><th width="32%">Option</th><th>What it does</th></tr>
+<tr><td><strong>Volume</strong></td><td>For all of them. Off silences the panel completely. Letting go of the slider plays a blip at the new level.</td></tr>
+<tr><td><strong>Battery: Full</strong></td><td>Three rising notes when the battery reaches 100%. Once per charge: it has to fall below 97% before it can chime again.</td></tr>
+<tr><td><strong>Battery: Down to its reserve</strong></td><td>Three falling notes when the battery drops to the <strong>Reserve</strong> level. Set that to match the reserve in the Sigen app; the plant does not report it, so the panel cannot read it. Once per discharge: the battery has to climb 3% above it first.</td></tr>
+<tr><td><strong>Panel: When it starts</strong></td><td>A short chime when the panel starts up.</td></tr>
+<tr><td><strong>Panel: Taps</strong></td><td>A soft tick for each tap. Swipes stay silent.</td></tr>
+<tr><td><strong>Car charging: Starts and stops</strong></td><td>Two notes up when a car has been charging for 30 seconds, two down when it has stopped for a minute, so the pauses chargers make do not count. Needs a source that reports the EV charger.</td></tr>
 </table>
 
 ### Screens

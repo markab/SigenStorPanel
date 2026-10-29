@@ -165,6 +165,16 @@ struct Settings {
   // Turning it off stops every outbound call beyond your own server. Installing
   // is a separate, manual act either way.
   bool check_updates = false;
+
+  // The speaker (src/device/sound.cpp). 0 silences everything.
+  uint8_t sound_volume = 40;
+  // Which sounds are on, as sound_bit()s of SoundCue (src/sound_events.h). All of
+  // them to start with: they are quiet, short, and kept to the hours someone is
+  // in the room.
+  uint8_t sound_mask = 0x3F;
+  // "Battery at reserve" plays when the battery falls to this. The plant's own
+  // reserve is not in any reading, so it is set here to match.
+  uint8_t sound_reserve_pct = 10;
 };
 
 // Loads from NVS, falling back to defaults. Safe to call before WiFi is up.
@@ -238,6 +248,8 @@ bool settings_set_rotate_enabled(bool enabled);
 bool settings_set_screens(uint8_t visible, uint8_t rotate);
 
 bool settings_set_check_updates(bool enabled);
+
+bool settings_set_sound(uint8_t volume, uint8_t mask, uint8_t reserve_pct);
 
 // The site's location and array layout, for the native forecast. `count` slots
 // are taken from `arrays` and the rest cleared, so removing one is a matter of

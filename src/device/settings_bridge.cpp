@@ -17,6 +17,7 @@
 #include "presence.h"
 #include "psram_alloc.h"
 #include "settings.h"
+#include "sound.h"
 #include "ui/ui.h"
 #include "ui_panel/settings_sheet.h"
 #include "ui_panel/ui_live.h"
@@ -35,6 +36,15 @@ void copy_host(char* out, size_t size, const String& url) {
     end = url.length();
   }
   snprintf(out, size, "%s", url.substring(start, end).c_str());
+}
+
+void push_sound() {
+  const Settings& s = settings_get();
+  SheetSound sound;
+  sound.volume = s.sound_volume;
+  sound.on = s.sound_mask;
+  sound.reserve_pct = s.sound_reserve_pct;
+  settings_sheet_set_sound(sound);
 }
 
 void push_display() {
@@ -329,6 +339,10 @@ SheetActions actions() {
     display_set_brightness(display.brightness);
     push_display();
   };
+  a.set_sound = [](const SheetSound& sound) {
+    settings_set_sound(sound.volume, sound.on, sound.reserve_pct);
+  };
+  a.preview_sound = [](SoundCue cue) { sound_preview(cue); };
   a.set_screens = [](const SheetScreens& screens) {
     settings_set_screens(screens.visible, screens.rotate);
     settings_set_screensaver(screens.rotate_s, settings_get().sweep_min);
@@ -521,6 +535,7 @@ SheetActions actions() {
 void settings_bridge_begin() {
   settings_sheet_create(lv_scr_act(), actions());
   push_display();
+  push_sound();
   push_screens();
   push_data();
   push_solar();

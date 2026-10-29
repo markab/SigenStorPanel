@@ -74,6 +74,12 @@ void set_disabled(lv_obj_t* obj, bool disabled);
 void set_hidden(lv_obj_t* obj, bool hidden);
 lv_obj_t* button(lv_obj_t* parent, const char* label, uint32_t background, uint32_t foreground);
 void button_set_text(lv_obj_t* obj, const char* label);
+// A page's row of cards, under the tabs.
+lv_obj_t* page_body(lv_obj_t* tile);
+// A caption above a slider, with the value at the right of the caption line.
+lv_obj_t* labelled_slider(lv_obj_t* parent, const char* name, int32_t min, int32_t max,
+                          lv_obj_t** value);
+lv_obj_t* labelled_toggle(lv_obj_t* parent, const char* name);
 lv_obj_t* signal_bars(lv_obj_t* parent);
 int bars_for(int8_t rssi);
 const char* signal_word(int8_t rssi);
@@ -125,6 +131,10 @@ bool parse_number(const char* value, float min, float max, float* out);
 
 // settings_sheet.cpp: what the owner handed settings_sheet_create().
 const SheetActions& sheet_actions();
+
+// settings_sheet_sound.cpp: the Sound page.
+void sound_build_page(lv_obj_t* tile);
+void sound_set(const SheetSound& sound);
 
 // settings_sheet_plant.cpp: the Solar page and the Modbus device editor.
 void plant_build_page(lv_obj_t* tile);
