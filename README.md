@@ -59,6 +59,7 @@ any inverter and battery integration, not only Sigenergy's.
 | **Grid** screen | ● frequency and voltage need an inverter added | ● | ◐ no frequency or voltage |
 | **Energy flows** screen | — | ● | — |
 | **Cost** screen | — | ● | — |
+| **Events** screen | — | ● | — |
 | Solar forecast | ● calculated on the panel | ● from the server | ● off, from the panel, or from Home Assistant sensors |
 | Today's charts | ◐ from when the panel was switched on | ● the whole day, even after a restart | ◐ restored from Home Assistant's history where it has one; otherwise from switch-on |
 | Step back through past days | — | ● up to 7 days | — |
@@ -87,8 +88,8 @@ untouched.
 | **Solar**: generated so far today and live output, over the day's curve with the forecast behind it. The forecast total and what is still to come are on the right. The bar around the edge is progress against the day's forecast.<br><br>*Works on all three sources.* | **Home use**: everything used today, with what is being drawn now and how self-sufficient you have been.<br><br>*Partial on Modbus and Home Assistant.* The total, live figure and locally recorded curve work. The breakdown by source needs a **SigenStorDisplay Server**. |
 | <img src="docs/img/grid.png" width="420" alt="Grid"> | <img src="docs/img/flows.png" width="420" alt="Energy flows"> |
 | **Grid**: imported and exported today, live frequency and voltage, and the day's import above the line and export below it.<br><br>*Works on all three sources.* Frequency and voltage need an inverter added on Modbus, and are not available from Home Assistant. | **Energy flows**: where today's energy came from and where it went. Sources down the left, destinations down the right, one ribbon per path.<br><br>**SigenStorDisplay Server only.** |
-| <img src="docs/img/cost.png" width="420" alt="Cost"> | |
-| **Cost**: what you have saved today and the unit rate you are paying right now.<br><br>**SigenStorDisplay Server only.** | |
+| <img src="docs/img/cost.png" width="420" alt="Cost"> | <img src="docs/img/events.png" width="420" alt="Events"> |
+| **Cost**: what you have saved today and the unit rate you are paying right now.<br><br>**SigenStorDisplay Server only.** | **Events**: Octopus Saving Sessions, Happy Hours, other free-import periods and Axle events. The live one, or else the next booked, in a card across the top, with the battery's run; the ones before it underneath, newest first, each with its result: how much was cut and the points, how much came in free, or what was exported and earned.<br><br>**SigenStorDisplay Server only**, from version 0.45.0. |
 
 Behind the battery, solar, home and grid figures is that day's own curve:
 
@@ -277,7 +278,7 @@ by someone who is there. Switching a sound on plays it, so you know which is whi
 
 <table>
 <tr><th width="32%">Option</th><th>What it does</th></tr>
-<tr><td><strong>Show</strong> ↻</td><td>A tick per screen for whether it appears at all. Power is always shown. On Modbus and Home Assistant, Energy flows and Cost are unavailable.</td></tr>
+<tr><td><strong>Show</strong> ↻</td><td>A tick per screen for whether it appears at all. Power is always shown. On Modbus and Home Assistant, Energy flows, Cost and Events are unavailable.</td></tr>
 <tr><td><strong>Cycle</strong></td><td>A second tick per screen for whether the auto-cycle stops on it.</td></tr>
 <tr><td><strong>Cycle screens, Every</strong></td><td>Steps through the screens marked Cycle by itself, this often. It waits while someone is touching the panel.</td></tr>
 </table>

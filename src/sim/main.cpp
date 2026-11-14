@@ -29,6 +29,7 @@
 #include "board_config.h"
 #include "day_series.h"
 #include "enrol_url.h"
+#include "events.h"
 #include "forecast_store.h"
 #include "ha_catalog.h"
 #include "history.h"
@@ -83,6 +84,12 @@ std::vector<std::string> discover_fixtures(const std::string& directory) {
   }
   while (const dirent* entry = readdir(dir)) {
     const std::string name = entry->d_name;
+    // Summary fixtures are numbered (01_normal.json ...). Anything else in the
+    // directory is another endpoint's payload — events.json is /api/events —
+    // and would otherwise be drawn as a summary with every figure unknown.
+    if (name.empty() || name[0] < '0' || name[0] > '9') {
+      continue;
+    }
     if (name.size() > 5 && name.compare(name.size() - 5, 5, ".json") == 0) {
       found.push_back(directory + "/" + name);
     }
@@ -91,6 +98,27 @@ std::vector<std::string> discover_fixtures(const std::string& directory) {
   // Numeric filename prefixes give a stable, meaningful order.
   std::sort(found.begin(), found.end());
   return found;
+}
+
+// test/fixtures/events.json, the /api/events payload every fixture shares. The
+// panel fetches it every few minutes; here it is loaded once.
+EventList s_events;
+
+bool read_file(const std::string& path, std::string* out);
+
+void load_events(const std::string& directory) {
+  std::string json;
+  const std::string path = directory + "/events.json";
+  if (!read_file(path, &json)) {
+    printf("[sim] no %s: the events screen stays empty\n", path.c_str());
+    return;
+  }
+  if (!events_parse(json.c_str(), json.size(), &s_events)) {
+    printf("[sim] %s did not parse\n", path.c_str());
+    return;
+  }
+  printf("[sim] events: %s current, %u past\n", s_events.has_current ? "one" : "no",
+         static_cast<unsigned>(s_events.past_count));
 }
 
 bool read_file(const std::string& path, std::string* out) {
@@ -712,10 +740,13 @@ void seed_sheet() {
   presence.distance_cm = 140;
   settings_sheet_set_presence(presence);
 
+  // The sim's other sources lack events as well as the detailed screens.
   s_sheet_screens.available =
-      s_with_detailed_screens ? 0xFF : static_cast<uint8_t>(~PUCK_DETAILED_SCREENS);
-  s_sheet_screens.visible = 0xFF;
-  s_sheet_screens.rotate = static_cast<uint8_t>(~(1u << PUCK_SCREEN_COST));
+      s_with_detailed_screens
+          ? 0xFFFF
+          : static_cast<PuckScreenMask>(~(PUCK_DETAILED_SCREENS | PUCK_EVENTS_SCREENS));
+  s_sheet_screens.visible = 0xFFFF;
+  s_sheet_screens.rotate = static_cast<PuckScreenMask>(~(1u << PUCK_SCREEN_COST));
   s_sheet_screens.rotate_enabled = true;
   s_sheet_screens.rotate_s = 20;
   settings_sheet_set_screens(s_sheet_screens);
@@ -1078,6 +1109,8 @@ void build_views() {
 
   UiConfig config;
   config.with_detailed_screens = s_with_detailed_screens;
+  // --modbus previews a source without events too.
+  config.with_events_screen = s_with_detailed_screens;
   ui_create(screen, config);
   ui_set_day_step(sim_step_day);
 
@@ -1554,6 +1587,26 @@ int run_screenshot_pass(const std::string& output_directory) {
     }
   }
 
+  // The events screen shows the same list over every fixture, so it is captured
+  // again in the states the file alone does not show: with nothing live or
+  // booked, the latest finished event takes the card; and with nothing at all.
+  for (int screen = 0; screen < ui_screen_count(); ++screen) {
+    if (ui_screen_at(screen) != PUCK_SCREEN_EVENTS) {
+      continue;
+    }
+    ui_show_screen(screen);
+    EventList variant = s_events;
+    variant.has_current = false;
+    ui_update_events(variant);
+    lv_refr_now(nullptr);
+    failures += save_shot(output_directory, "events_no_current") ? 0 : 1;
+    variant.past_count = 0;
+    ui_update_events(variant);
+    lv_refr_now(nullptr);
+    failures += save_shot(output_directory, "events_empty") ? 0 : 1;
+    ui_update_events(s_events);
+  }
+
   // The banners are not screens, but each is a line of text that has to fit
   // across the top without covering what is under it, which is exactly the thing
   // this pass exists to check. Once each, over whichever fixture is loaded.
@@ -1753,6 +1806,8 @@ int main(int argc, char** argv) {
   }
 
   build_views();
+  load_events(directory);
+  ui_update_events(s_events);
   if (s_startup_tilt != 0) {
     ui_set_fine_rotation(s_startup_tilt);
   }

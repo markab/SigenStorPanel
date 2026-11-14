@@ -4,13 +4,17 @@
 #include <string.h>
 #include <time.h>
 
+#include <new>
+
 #include "banner.h"
 #include "board_config.h"
 #include "chart_band.h"
 #include "history.h"
+#include "psram_alloc.h"
 #include "qr_block.h"
 #include "screen_battery.h"
 #include "screen_cost.h"
+#include "screen_events.h"
 #include "screen_flows.h"
 #include "screen_grid.h"
 #include "screen_load.h"
@@ -36,7 +40,7 @@ namespace {
 // is what makes this a contained change.
 constexpr int MAX_SCREENS = PUCK_SCREEN_COUNT;
 int s_screen_count = 0;
-uint8_t s_rotate_mask = 0xFF;
+PuckScreenMask s_rotate_mask = 0xFFFF;
 
 // Tile index -> which screen it holds. Built once, and the only thing that knows
 // the mapping: with screens switchable, position no longer implies identity.
@@ -100,6 +104,18 @@ Snapshot s_live;
 bool s_live_valid = false;
 Snapshot s_day;
 
+// The grid events, kept so the events screen can be redrawn against the clock
+// between lists: a live event's "42 min left" has to count down although the
+// list arrives only every few minutes. In PSRAM like the other CPU-only state
+// (psram_alloc.h); allocated with the first list. `s_events_tick` is LVGL's
+// clock when it arrived, which turns the list's own `now` into the current time
+// on the device and in the simulator alike. As SigenStorPuck's landscape ui.cpp.
+EventList* s_events = nullptr;
+uint32_t s_events_tick = 0;
+
+// How often the events screen re-reads the clock. Its finest unit is a minute.
+constexpr uint32_t EVENTS_REDRAW_S = 15;
+
 // What the day-oriented screens are looking at.
 enum class DayState : uint8_t {
   Live,     // no day chosen; they follow the live reading
@@ -139,6 +155,28 @@ char s_qr_url[80] = {};
 // The overlay's own QR card, small enough to leave room for a title above and
 // three lines of instruction below.
 constexpr lv_coord_t OVERLAY_QR_PX = 132;
+
+bool events_screen_built() {
+  for (int i = 0; i < s_screen_count; ++i) {
+    if (s_screen_at[i] == PUCK_SCREEN_EVENTS) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// The screen's view of now: the server's clock when it answered, advanced by how
+// long ago that was. The offset is the one the day charts are anchored to, so
+// "Tonight" and the chart's midnight agree; UTC until one is known.
+void refresh_events() {
+  if (s_events == nullptr) {
+    return;
+  }
+  const uint32_t now = s_events->valid ? s_events->now + lv_tick_elaps(s_events_tick) / 1000 : 0;
+  int32_t tz_offset_min = 0;
+  history_timezone(HistoryBank::Live, &tz_offset_min);
+  screen_events_update(*s_events, now, tz_offset_min);
+}
 
 void highlight_active_dot() {
   lv_obj_t* active = lv_tileview_get_tile_act(s_tileview);
@@ -207,6 +245,12 @@ void housekeeping_tick(lv_timer_t* /*timer*/) {
     rotate_elapsed = 0;
   }
 
+  static uint32_t events_elapsed = 0;
+  if (++events_elapsed >= EVENTS_REDRAW_S) {
+    events_elapsed = 0;
+    refresh_events();
+  }
+
   static uint32_t sweep_elapsed = 0;
   if (s_sweep_minutes > 0 && !busy) {
     if (++sweep_elapsed >= s_sweep_minutes * 60) {
@@ -243,7 +287,9 @@ bool day_indicator_wanted() {
     return false;
   }
   const PuckScreen screen = ui_screen_at(ui_current_screen());
-  return screen != PUCK_SCREEN_POWER && screen != PUCK_SCREEN_SETTINGS;
+  // The events screen neither: its list is not dated by the buttons.
+  return screen != PUCK_SCREEN_POWER && screen != PUCK_SCREEN_SETTINGS &&
+         screen != PUCK_SCREEN_EVENTS;
 }
 
 void set_arrow_hidden(lv_obj_t* arrow, bool hidden) {
@@ -411,9 +457,13 @@ lv_obj_t* ui_create(lv_obj_t* parent, const UiConfig& config) {
   // No settings screen in the swipe row: settings are a sheet that slides up
   // over any screen (settings_sheet.cpp), and the QR code and address it used to
   // carry are on the sheet's Device page.
-  uint8_t wanted = config.visible & static_cast<uint8_t>(~(1u << PUCK_SCREEN_SETTINGS));
+  PuckScreenMask wanted =
+      config.visible & static_cast<PuckScreenMask>(~(1u << PUCK_SCREEN_SETTINGS));
   if (!config.with_detailed_screens) {
-    wanted &= static_cast<uint8_t>(~PUCK_DETAILED_SCREENS);
+    wanted &= static_cast<PuckScreenMask>(~PUCK_DETAILED_SCREENS);
+  }
+  if (!config.with_events_screen) {
+    wanted &= static_cast<PuckScreenMask>(~PUCK_EVENTS_SCREENS);
   }
   // Screen 1 is the device's reason to exist and the one every failure mode
   // falls back to. Leaving nothing but the settings screen would look broken.
@@ -472,6 +522,9 @@ lv_obj_t* ui_create(lv_obj_t* parent, const UiConfig& config) {
         break;
       case PUCK_SCREEN_COST:
         screen_cost_create(s_tiles[i]);
+        break;
+      case PUCK_SCREEN_EVENTS:
+        screen_events_create(s_tiles[i]);
         break;
       case PUCK_SCREEN_SETTINGS:
         screen_settings_create(s_tiles[i]);
@@ -721,6 +774,22 @@ void ui_update(const Snapshot& snapshot) {
   refresh_screens();
 }
 
+void ui_update_events(const EventList& events) {
+  if (!events_screen_built()) {
+    return;
+  }
+  if (s_events == nullptr) {
+    void* block = psram_alloc(sizeof(EventList));
+    if (block == nullptr) {
+      return;
+    }
+    s_events = new (block) EventList();
+  }
+  *s_events = events;
+  s_events_tick = lv_tick_get();
+  refresh_events();
+}
+
 void ui_update_day(const Snapshot& snapshot) {
   s_day = snapshot;
   s_day_state = snapshot.valid ? DayState::Loaded : DayState::Loading;
@@ -781,7 +850,7 @@ void ui_set_day_step(UiDayStep step) {
   s_day_step = step;
 }
 
-void ui_set_rotate_mask(uint8_t mask) {
+void ui_set_rotate_mask(PuckScreenMask mask) {
   s_rotate_mask = mask;
 }
 
