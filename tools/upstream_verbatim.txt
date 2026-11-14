@@ -2,7 +2,7 @@
 # tools/upstream_drift.sh compares each against the base below and SigenStorPuck's main.
 # One path per line. Move a file out of this list (into UPSTREAM.md's adapted table)
 # the moment it is deliberately changed here.
-base f414186
+base debfd7c
 include/puck_lv_mem.h
 src/button_gesture.cpp
 src/button_gesture.h
@@ -108,3 +108,7 @@ web/installer/vendor/esp-web-tools/stub_flasher_32s2-CrsP1231.js
 web/installer/vendor/esp-web-tools/stub_flasher_32s3-CiJyd6Fk.js
 web/installer/vendor/esp-web-tools/stub_flasher_8266-CQFcqJ_a.js
 web/installer/vendor/esp-web-tools/styles-sT2V1cOw.js
+src/events.h
+src/events.cpp
+src/ui/screen_events.h
+test/fixtures/events.json
