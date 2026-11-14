@@ -274,6 +274,8 @@ const char* screen_name(PuckScreen screen) {
       return "Energy flows";
     case PUCK_SCREEN_COST:
       return "Cost";
+    case PUCK_SCREEN_EVENTS:
+      return "Events";
     default:
       return "";
   }

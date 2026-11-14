@@ -68,9 +68,15 @@ void push_screens() {
   SheetScreens screens;
   screens.visible = s.screens_visible;
   screens.rotate = s.screens_rotate;
-  screens.available = data_source_capabilities(s.source).detailed_flows
-                          ? 0xFF
-                          : static_cast<uint8_t>(~PUCK_DETAILED_SCREENS);
+  const SourceCapabilities caps = data_source_capabilities(s.source);
+  PuckScreenMask available = 0xFFFF;
+  if (!caps.detailed_flows) {
+    available &= static_cast<PuckScreenMask>(~PUCK_DETAILED_SCREENS);
+  }
+  if (!caps.events) {
+    available &= static_cast<PuckScreenMask>(~PUCK_EVENTS_SCREENS);
+  }
+  screens.available = available;
   screens.rotate_enabled = s.rotate_enabled;
   screens.rotate_s = s.rotate_s;
   settings_sheet_set_screens(screens);

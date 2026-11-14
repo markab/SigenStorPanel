@@ -45,7 +45,7 @@ SheetDevice s_device;
 bool s_have_boot_screens = false;
 bool s_have_boot_data = false;
 bool s_have_boot_display = false;
-uint8_t s_boot_visible = 0xFF;
+uint16_t s_boot_visible = 0xFFFF;
 DataSource s_boot_source = DataSource::Server;
 bool s_boot_flipped = false;
 
@@ -312,7 +312,7 @@ void refresh_display() {
 void refresh_screens() {
   for (int i = 0; i < LISTED_SCREENS; ++i) {
     const PuckScreen screen = s_listed[i];
-    const uint8_t bit = static_cast<uint8_t>(1u << screen);
+    const uint16_t bit = static_cast<uint16_t>(1u << screen);
     const bool available = (s_screens.available & bit) != 0;
     // The live screen is what every failure falls back to, so ui_create()
     // builds it whatever the mask says. Shown as on and fixed, not as a switch
@@ -661,11 +661,11 @@ void on_flip(lv_event_t* /*event*/) {
 // User data: the index into s_listed.
 void on_screen_show(lv_event_t* event) {
   const intptr_t i = reinterpret_cast<intptr_t>(lv_event_get_user_data(event));
-  const uint8_t bit = static_cast<uint8_t>(1u << s_listed[i]);
+  const uint16_t bit = static_cast<uint16_t>(1u << s_listed[i]);
   if (lv_obj_has_state(s_screen_show[i], LV_STATE_CHECKED)) {
     s_screens.visible |= bit;
   } else {
-    s_screens.visible &= static_cast<uint8_t>(~bit);
+    s_screens.visible &= static_cast<uint16_t>(~bit);
   }
   save_screens();
   refresh_screens();
@@ -673,11 +673,11 @@ void on_screen_show(lv_event_t* event) {
 
 void on_screen_cycle(lv_event_t* event) {
   const intptr_t i = reinterpret_cast<intptr_t>(lv_event_get_user_data(event));
-  const uint8_t bit = static_cast<uint8_t>(1u << s_listed[i]);
+  const uint16_t bit = static_cast<uint16_t>(1u << s_listed[i]);
   if (lv_obj_has_state(s_screen_cycle[i], LV_STATE_CHECKED)) {
     s_screens.rotate |= bit;
   } else {
-    s_screens.rotate &= static_cast<uint8_t>(~bit);
+    s_screens.rotate &= static_cast<uint16_t>(~bit);
   }
   save_screens();
   refresh_screens();
@@ -974,7 +974,7 @@ void build_screens(lv_obj_t* tile) {
     const int i = listed++;
     s_listed[i] = screen;
     lv_obj_t* line = row(left);
-    lv_obj_set_height(line, 46);
+    lv_obj_set_height(line, 40);  // eight screens to a card
 
     lv_obj_t* names = plain(line);
     lv_obj_set_size(names, LV_SIZE_CONTENT, LV_SIZE_CONTENT);

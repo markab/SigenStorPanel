@@ -57,10 +57,10 @@ struct SheetPresence {
 };
 
 struct SheetScreens {
-  uint8_t visible = 0xFF;  // PuckScreen bits; applies on the next boot
-  uint8_t rotate = 0xFF;   // PuckScreen bits the auto-cycle visits
+  uint16_t visible = 0xFFFF;  // PuckScreen bits; applies on the next boot
+  uint16_t rotate = 0xFFFF;   // PuckScreen bits the auto-cycle visits
   // Screens this data source can draw at all. The rest are shown greyed out.
-  uint8_t available = 0xFF;
+  uint16_t available = 0xFFFF;
   bool rotate_enabled = false;
   uint32_t rotate_s = 15;
 };
