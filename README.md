@@ -60,6 +60,7 @@ any inverter and battery integration, not only Sigenergy's.
 | **Energy flows** screen | — | ● | — |
 | **Cost** screen | — | ● | — |
 | **Events** screen | — | ● | — |
+| **Environment** screen | ● with an EnViOT Display server | ● with an EnViOT Display server | ● with an EnViOT Display server |
 | Solar forecast | ● calculated on the panel | ● from the server | ● off, from the panel, or from Home Assistant sensors |
 | Today's charts | ◐ from when the panel was switched on | ● the whole day, even after a restart | ◐ restored from Home Assistant's history where it has one; otherwise from switch-on |
 | Step back through past days | — | ● up to 7 days | — |
@@ -90,6 +91,8 @@ untouched.
 | **Grid**: imported and exported today, live frequency and voltage, and the day's import above the line and export below it.<br><br>*Works on all three sources.* Frequency and voltage need an inverter added on Modbus, and are not available from Home Assistant. | **Energy flows**: where today's energy came from and where it went. Sources down the left, destinations down the right, one ribbon per path.<br><br>**SigenStorDisplay Server only.** |
 | <img src="docs/img/cost.png" width="420" alt="Cost"> | <img src="docs/img/events.png" width="420" alt="Events"> |
 | **Cost**: what you have saved today and the unit rate you are paying right now.<br><br>**SigenStorDisplay Server only.** | **Events**: Octopus Saving Sessions, Happy Hours, other free-import periods and Axle events. The live one, or else the next booked, in a card across the top, with the battery's run; the ones before it underneath, newest first, each with its result: how much was cut and the points, how much came in free, or what was exported and earned.<br><br>**SigenStorDisplay Server only**, from version 0.45.0. |
+| <img src="docs/img/environment.png" width="420" alt="Environment"> | |
+| **Environment**: your room and outdoor sensors from an **EnViOT Display** server, up to four. Each card has the temperature on a gauge with the server's cold, ok and hot bands around it, the last 24 hours' lowest and highest, two more readings (humidity and pressure, or whichever the server puts on its cards) and the sensor's battery. A sensor that has gone quiet is greyed out; one with an alert gets a red outline and the alert's name.<br><br>*Works with any source.* Needs an EnViOT Display server, set up under **Data** (see [Environment sensors](#environment-sensors-optional)). | |
 
 Behind the battery, solar, home and grid figures is that day's own curve:
 
@@ -299,6 +302,7 @@ by someone who is there. Switching a sound on plays it, so you know which is whi
 <tr><td><strong>Source</strong> ↻</td><td><strong>Server</strong>, <strong>Modbus</strong> (the default) or <strong>Home Assistant</strong>. Below it are that source's own settings, as described under <strong>Installing</strong>.</td></tr>
 <tr><td><strong>Forget server</strong></td><td><em>Server only.</em> Clears the server address and code.</td></tr>
 <tr><td><strong>Reading: Every</strong></td><td>How often the live figures are read, in seconds. <code>5</code> is the default. The day's charts update every five minutes whatever this says.</td></tr>
+<tr><td><strong>EnViOT</strong> ↻</td><td>An EnViOT Display server for the <strong>Environment</strong> screen, set alongside whichever source you use. <strong>Enter link</strong> takes the whole enrolment link from EnViOT Display's <em>Account → Kiosk devices</em>; <strong>Set server</strong> and <strong>Set code</strong> take its two halves. <strong>Forget</strong> clears both.</td></tr>
 </table>
 
 ### Solar
@@ -350,6 +354,24 @@ address in your router and grant it again.
 
 **Holding BOOT for 5 seconds restarts the panel.** The slide switch on the side cuts power
 outright.
+
+## Environment sensors (optional)
+
+If you also run **EnViOT Display**, the server for EnViOT temperature and humidity sensors,
+the panel can show them on a screen of its own, beside whichever SigenStor source you use.
+
+1. In EnViOT Display, go to **Account → Kiosk devices**, add one (say "Hall panel") and copy
+   its enrolment link.
+2. On the panel, open **Settings → Data**, tap **Enter link** under **EnViOT**, and type or
+   paste the link. Over HTTPS the certificate is checked, as for the SigenStor server; on
+   your own network `http://` to EnViOT Display's address works too.
+3. Restart the panel (**Device → Restart**). The **Environment** screen appears after
+   **Events**; it can be hidden or left out of the cycle under **Screens** like any other.
+
+The panel reads the sensors once a minute and each one's 24-hour range every five minutes.
+The code is read-only: a kiosk can see the readings but change nothing. If EnViOT Display
+refuses the code (the kiosk device was deleted, say), the screen says so and the panel tries
+again every ten minutes.
 
 ## Room sensor (optional)
 
