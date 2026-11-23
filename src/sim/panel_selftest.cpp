@@ -2,8 +2,10 @@
 // selftest.cpp, which is kept verbatim with SigenStorPuck; these are the panel's.
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
+#include "enviot.h"
 #include "ha_catalog.h"
 #include "kiosk_code.h"
 #include "presence_parse.h"
@@ -226,6 +228,149 @@ void test_sound_ev() {
         "booting mid-charge: no start, but the stop is heard");
 }
 
+
+// A fixture file, whole, or nullptr. The caller frees it.
+char* read_fixture(const char* path, size_t* length) {
+  FILE* file = fopen(path, "rb");
+  if (file == nullptr) {
+    return nullptr;
+  }
+  fseek(file, 0, SEEK_END);
+  const long size = ftell(file);
+  fseek(file, 0, SEEK_SET);
+  char* text = static_cast<char*>(malloc(static_cast<size_t>(size) + 1));
+  *length = fread(text, 1, static_cast<size_t>(size), file);
+  text[*length] = '\0';
+  fclose(file);
+  return text;
+}
+
+bool near(const MaybeFloat& value, float expected) {
+  return value.known && value.value > expected - 0.001f && value.value < expected + 0.001f;
+}
+
+bool parse_live_text(const char* text, EnvReadings* out) {
+  return enviot_parse_live(text, strlen(text), out);
+}
+
+void test_enviot_live() {
+  size_t length = 0;
+  char* live = read_fixture("test/fixtures/enviot_live.json", &length);
+  check(live != nullptr, "enviot_live.json is there (run from the repo root)");
+  if (live == nullptr) {
+    return;
+  }
+  static EnvReadings r;
+  check(enviot_parse_live(live, length, &r), "the live fixture parses");
+  free(live);
+  check(r.count == 4, "four shown, the hidden fifth left off");
+  check(r.now == 1795458600, "the server's clock");
+  check(r.temperature.min == -10.0f && r.temperature.max == 40.0f &&
+            r.temperature.band_count == 3,
+        "the temperature scale and its three bands");
+  check(near({true, r.battery.min}, 3.2f) && near({true, r.battery.max}, 4.2f) &&
+            r.battery.band_count == 3,
+        "the battery scale");
+  check(strcmp(r.temperature_unit, "\xC2\xB0" "C") == 0 && r.temperature_decimals == 1,
+        "the temperature unit");
+  const EnvDevice& gh = r.devices[0];
+  check(strcmp(gh.id, "10000001") == 0 && strcmp(gh.name, "Greenhouse") == 0 &&
+            gh.colour == 0x199E70,
+        "the first device's id, name and colour");
+  check(near(gh.temperature, 1.5f) && gh.temperature_band == EnvBand::Cold,
+        "its temperature and the server's band for it");
+  check(strcmp(gh.temperature_field, "temperature_1") == 0, "numbered sensors: the main one's field");
+  check(near(gh.battery, 3.78f), "its battery voltage");
+  check(gh.last_seen == 1795458600 - 480 && !gh.stale, "when it was last seen");
+  check(gh.row_count == 2 && strcmp(gh.rows[0].label, "Humidity") == 0 &&
+            strcmp(gh.rows[1].label, "Pressure") == 0,
+        "two rows, in the server's order: Light is the third card reading and is left off");
+  check(near(gh.rows[0].value, 80.6f) && strcmp(gh.rows[0].unit, "%RH") == 0 &&
+            gh.rows[0].decimals == 1,
+        "a row's value, unit and places");
+  check(!gh.day_min.known && !gh.day_max.known, "no range until the day stats are read");
+  check(gh.alert[0] == '\0', "no alert");
+  check(strcmp(r.devices[3].name, "Upstairs") == 0, "devices in the server's order");
+
+  char* day = read_fixture("test/fixtures/enviot_day.json", &length);
+  check(day != nullptr && enviot_parse_day(day, length, &r), "the day fixture parses");
+  free(day);
+  check(near(gh.day_min, -0.8f) && near(gh.day_max, 9.4f),
+        "the range is the main sensor's, not sensor 2's");
+  check(near(r.devices[2].day_min, 19.6f) && near(r.devices[2].day_max, 22.9f),
+        "every device gets its own range");
+
+  static EnvReadings next;
+  check(parse_live_text(R"({"now":10,"readings":[{"key":"temperature","sensors":true,"main_sensor":1}],
+      "devices":[{"id":"10000003","readings":{"temperature":{"value":20}}},
+                 {"id":"10000001","readings":{"temperature":{"value":2}}}]})", &next) &&
+            next.count == 2,
+        "a minimal body parses");
+  enviot_carry_day(r, &next);
+  check(near(next.devices[0].day_max, 22.9f) && near(next.devices[1].day_min, -0.8f),
+        "the range carries over by id between day reads");
+  check(!next.devices[0].battery.known && next.devices[0].row_count == 0 &&
+            next.devices[0].temperature_band == EnvBand::None,
+        "what is missing is unknown, not zero");
+}
+
+void test_enviot_edges() {
+  static EnvReadings r;
+  check(!parse_live_text("{\"detail\":\"Not authenticated\"}", &r) && r.count == 0,
+        "a 401 body is not readings");
+  check(!parse_live_text("not json", &r), "nor is junk");
+  check(parse_live_text(R"({"now":100,"readings":[],"devices":[
+      {"id":"a","name":"Shed","color":"red","stale":true,"last_seen":1.5,
+       "readings":{"temperature":{"value":null,"state":"warm"}},
+       "alerts":[{"kind":"device_stale","title":"Offline"},{"kind":"rule","title":"Frost risk"}]}]})", &r),
+        "a stale device with alerts parses");
+  const EnvDevice& d = r.devices[0];
+  check(d.stale && d.last_seen == 1, "stale, and when it was last seen");
+  check(!d.temperature.known, "a null temperature is unknown");
+  check(d.temperature_band == EnvBand::None, "a band this firmware does not know is neutral");
+  check(d.colour == 0x8E8E93, "a colour that is not #rrggbb is grey");
+  check(strcmp(d.alert, "Frost risk") == 0, "the stale alert is skipped for the next one");
+  check(d.temperature_field[0] == '\0', "no temperature definition, no field to match");
+
+  EnvScale scale;
+  scale.band_count = 3;
+  scale.bands[0] = {-10.0f, EnvBand::Cold};
+  scale.bands[1] = {3.0f, EnvBand::Ok};
+  scale.bands[2] = {28.0f, EnvBand::Hot};
+  check(enviot_band_at(scale, -20.0f) == EnvBand::Cold, "below the first stop: the first band");
+  check(enviot_band_at(scale, 2.99f) == EnvBand::Cold, "just under a stop");
+  check(enviot_band_at(scale, 3.0f) == EnvBand::Ok, "on a stop: that stop's band");
+  check(enviot_band_at(scale, 50.0f) == EnvBand::Hot, "above the last");
+  check(enviot_band_at(EnvScale(), 1.0f) == EnvBand::None, "no bands");
+
+  char text[32];
+  enviot_format_ago(89, text, sizeof(text));
+  check(strcmp(text, "just now") == 0, "under 90 s is just now");
+  enviot_format_ago(480, text, sizeof(text));
+  check(strcmp(text, "8 min ago") == 0, "minutes");
+  enviot_format_ago(3 * 3600 + 59, text, sizeof(text));
+  check(strcmp(text, "3 h ago") == 0, "hours");
+  enviot_format_ago(5 * 86400, text, sizeof(text));
+  check(strcmp(text, "5 days ago") == 0, "days");
+  enviot_format_stale(52 * 60, text, sizeof(text));
+  check(strcmp(text, "No data for 52 min") == 0, "stale in minutes");
+  enviot_format_stale(2 * 3600, text, sizeof(text));
+  check(strcmp(text, "No data for 2 h") == 0, "stale in hours");
+
+  enviot_format_value({true, 1023.1f}, 1, text, sizeof(text));
+  check(strcmp(text, "1,023.1") == 0, "thousands grouped");
+  enviot_format_value({true, -0.8f}, 1, text, sizeof(text));
+  check(strcmp(text, "-0.8") == 0, "below zero");
+  enviot_format_value({true, -0.04f}, 1, text, sizeof(text));
+  check(strcmp(text, "0.0") == 0, "no minus on a rounded zero");
+  enviot_format_value({true, -1234567.0f}, 0, text, sizeof(text));
+  check(strcmp(text, "-1,234,567") == 0, "millions, below zero");
+  enviot_format_value({true, 80.6f}, 1, text, sizeof(text));
+  check(strcmp(text, "80.6") == 0, "no comma under a thousand");
+  enviot_format_value(MaybeFloat(), 1, text, sizeof(text));
+  check(strcmp(text, "--") == 0, "unknown");
+}
+
 }  // namespace
 
 int run_panel_selftest() {
@@ -237,6 +382,8 @@ int run_panel_selftest() {
   test_ha_catalog();
   test_sound_battery();
   test_sound_ev();
+  test_enviot_live();
+  test_enviot_edges();
   printf("\n%d panel checks, %d failed\n", s_checks, s_failures);
   return s_failures == 0 ? 0 : 1;
 }

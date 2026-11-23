@@ -1,0 +1,484 @@
+{
+ "type": "live",
+ "now": 1795458600.0,
+ "influx": {
+  "ok": true,
+  "error": ""
+ },
+ "signal": "rssi",
+ "readings": [
+  {
+   "key": "temperature",
+   "label": "Temperature",
+   "unit": "°C",
+   "decimals": 1,
+   "gauge_min": -10,
+   "gauge_max": 40,
+   "bands": [
+    [
+     -10,
+     "cold"
+    ],
+    [
+     3,
+     "ok"
+    ],
+    [
+     28,
+     "hot"
+    ]
+   ],
+   "kind": "series",
+   "on_card": true,
+   "on_trends": true,
+   "on_detail": true,
+   "sensors": true,
+   "sensor_list": [
+    1,
+    2
+   ],
+   "main_sensor": 1
+  },
+  {
+   "key": "humidity",
+   "label": "Humidity",
+   "unit": "%RH",
+   "decimals": 1,
+   "gauge_min": 0,
+   "gauge_max": 100,
+   "bands": [],
+   "kind": "series",
+   "on_card": true,
+   "on_trends": true,
+   "on_detail": true,
+   "sensors": true,
+   "sensor_list": [
+    1,
+    2
+   ],
+   "main_sensor": 1
+  },
+  {
+   "key": "pressure",
+   "label": "Pressure",
+   "unit": "hPa",
+   "decimals": 1,
+   "gauge_min": 950,
+   "gauge_max": 1050,
+   "bands": [],
+   "kind": "series",
+   "on_card": true,
+   "on_trends": true,
+   "on_detail": true,
+   "sensors": false,
+   "field": "pressure"
+  },
+  {
+   "key": "light",
+   "label": "Light",
+   "unit": "lux",
+   "decimals": 0,
+   "gauge_min": 0,
+   "gauge_max": 1000,
+   "bands": [],
+   "kind": "series",
+   "on_card": true,
+   "on_trends": true,
+   "on_detail": true,
+   "sensors": false
+  },
+  {
+   "key": "battery",
+   "label": "Battery",
+   "unit": "V",
+   "decimals": 2,
+   "gauge_min": 3.2,
+   "gauge_max": 4.2,
+   "bands": [
+    [
+     3.2,
+     "low"
+    ],
+    [
+     3.5,
+     "fair"
+    ],
+    [
+     3.7,
+     "ok"
+    ]
+   ],
+   "kind": "series",
+   "on_card": true,
+   "on_trends": true,
+   "on_detail": true,
+   "sensors": false,
+   "field": "batteryVoltage"
+  },
+  {
+   "key": "rssi",
+   "label": "Wi-Fi signal",
+   "unit": "dBm",
+   "decimals": 0,
+   "gauge_min": -100,
+   "gauge_max": -30,
+   "bands": [],
+   "kind": "series",
+   "on_card": false,
+   "on_trends": false,
+   "on_detail": true,
+   "sensors": false
+  }
+ ],
+ "devices": [
+  {
+   "id": "10000001",
+   "name": "Greenhouse",
+   "color": "#199e70",
+   "location": "outdoor",
+   "hidden": false,
+   "order": 0,
+   "last_seen": 1795458120.0,
+   "stale": false,
+   "readings": {
+    "temperature": {
+     "value": 1.5,
+     "time": 1795458120.0,
+     "state": "cold",
+     "main": 1,
+     "sensors": {
+      "1": {
+       "value": 1.5,
+       "time": 1795458120.0,
+       "state": ""
+      },
+      "2": {
+       "value": 1.7,
+       "time": 1795458120.0,
+       "state": ""
+      }
+     }
+    },
+    "humidity": {
+     "value": 80.6,
+     "time": 1795458120.0,
+     "state": "",
+     "main": 1,
+     "sensors": {
+      "1": {
+       "value": 80.6,
+       "time": 1795458120.0,
+       "state": ""
+      },
+      "2": {
+       "value": 81.8,
+       "time": 1795458120.0,
+       "state": ""
+      }
+     }
+    },
+    "pressure": {
+     "value": 1023.1,
+     "time": 1795458120.0,
+     "state": ""
+    },
+    "light": {
+     "value": 3,
+     "time": 1795458120.0,
+     "state": ""
+    },
+    "battery": {
+     "value": 3.78,
+     "time": 1795458120.0,
+     "state": "ok"
+    },
+    "rssi": {
+     "value": -83,
+     "time": 1795458120.0,
+     "state": ""
+    }
+   },
+   "alerts": []
+  },
+  {
+   "id": "10000002",
+   "name": "Shed",
+   "color": "#e0662d",
+   "location": "outdoor",
+   "hidden": false,
+   "order": 1,
+   "last_seen": 1795457220.0,
+   "stale": false,
+   "readings": {
+    "temperature": {
+     "value": 4.1,
+     "time": 1795457220.0,
+     "state": "ok",
+     "main": 1,
+     "sensors": {
+      "1": {
+       "value": 4.1,
+       "time": 1795457220.0,
+       "state": ""
+      },
+      "2": {
+       "value": 4.3,
+       "time": 1795457220.0,
+       "state": ""
+      }
+     }
+    },
+    "humidity": {
+     "value": 68.5,
+     "time": 1795457220.0,
+     "state": "",
+     "main": 1,
+     "sensors": {
+      "1": {
+       "value": 68.5,
+       "time": 1795457220.0,
+       "state": ""
+      },
+      "2": {
+       "value": 69.7,
+       "time": 1795457220.0,
+       "state": ""
+      }
+     }
+    },
+    "pressure": {
+     "value": 1022.6,
+     "time": 1795457220.0,
+     "state": ""
+    },
+    "light": {
+     "value": 0,
+     "time": 1795457220.0,
+     "state": ""
+    },
+    "battery": {
+     "value": 3.81,
+     "time": 1795457220.0,
+     "state": "ok"
+    },
+    "rssi": {
+     "value": -82,
+     "time": 1795457220.0,
+     "state": ""
+    }
+   },
+   "alerts": []
+  },
+  {
+   "id": "10000003",
+   "name": "Livingroom",
+   "color": "#4c8df6",
+   "location": "indoor",
+   "hidden": false,
+   "order": 2,
+   "last_seen": 1795457820.0,
+   "stale": false,
+   "readings": {
+    "temperature": {
+     "value": 22.4,
+     "time": 1795457820.0,
+     "state": "ok",
+     "main": 1,
+     "sensors": {
+      "1": {
+       "value": 22.4,
+       "time": 1795457820.0,
+       "state": ""
+      },
+      "2": {
+       "value": 22.6,
+       "time": 1795457820.0,
+       "state": ""
+      }
+     }
+    },
+    "humidity": {
+     "value": 45.0,
+     "time": 1795457820.0,
+     "state": "",
+     "main": 1,
+     "sensors": {
+      "1": {
+       "value": 45.0,
+       "time": 1795457820.0,
+       "state": ""
+      },
+      "2": {
+       "value": 46.2,
+       "time": 1795457820.0,
+       "state": ""
+      }
+     }
+    },
+    "pressure": {
+     "value": 1022.0,
+     "time": 1795457820.0,
+     "state": ""
+    },
+    "light": {
+     "value": 3,
+     "time": 1795457820.0,
+     "state": ""
+    },
+    "battery": {
+     "value": 3.76,
+     "time": 1795457820.0,
+     "state": "ok"
+    },
+    "rssi": {
+     "value": -66,
+     "time": 1795457820.0,
+     "state": ""
+    }
+   },
+   "alerts": []
+  },
+  {
+   "id": "10000004",
+   "name": "Upstairs",
+   "color": "#c454c4",
+   "location": "indoor",
+   "hidden": false,
+   "order": 3,
+   "last_seen": 1795458580.0,
+   "stale": false,
+   "readings": {
+    "temperature": {
+     "value": 20.6,
+     "time": 1795458580.0,
+     "state": "ok",
+     "main": 1,
+     "sensors": {
+      "1": {
+       "value": 20.6,
+       "time": 1795458580.0,
+       "state": ""
+      },
+      "2": {
+       "value": 20.5,
+       "time": 1795458580.0,
+       "state": ""
+      }
+     }
+    },
+    "humidity": {
+     "value": 48.1,
+     "time": 1795458580.0,
+     "state": "",
+     "main": 1,
+     "sensors": {
+      "1": {
+       "value": 48.1,
+       "time": 1795458580.0,
+       "state": ""
+      },
+      "2": {
+       "value": 49.300000000000004,
+       "time": 1795458580.0,
+       "state": ""
+      }
+     }
+    },
+    "pressure": {
+     "value": 1022.1,
+     "time": 1795458580.0,
+     "state": ""
+    },
+    "light": {
+     "value": 3,
+     "time": 1795458580.0,
+     "state": ""
+    },
+    "battery": {
+     "value": 3.9,
+     "time": 1795458580.0,
+     "state": "ok"
+    },
+    "rssi": {
+     "value": -55,
+     "time": 1795458580.0,
+     "state": ""
+    }
+   },
+   "alerts": []
+  },
+  {
+   "id": "10000005",
+   "name": "Loft",
+   "color": "#999999",
+   "location": "indoor",
+   "hidden": true,
+   "order": 4,
+   "last_seen": 1795458540.0,
+   "stale": false,
+   "readings": {
+    "temperature": {
+     "value": 12.0,
+     "time": 1795458540.0,
+     "state": "ok",
+     "main": 1,
+     "sensors": {
+      "1": {
+       "value": 12.0,
+       "time": 1795458540.0,
+       "state": ""
+      },
+      "2": {
+       "value": 12.0,
+       "time": 1795458540.0,
+       "state": ""
+      }
+     }
+    },
+    "humidity": {
+     "value": 50.0,
+     "time": 1795458540.0,
+     "state": "",
+     "main": 1,
+     "sensors": {
+      "1": {
+       "value": 50.0,
+       "time": 1795458540.0,
+       "state": ""
+      },
+      "2": {
+       "value": 51.2,
+       "time": 1795458540.0,
+       "state": ""
+      }
+     }
+    },
+    "pressure": {
+     "value": 1020.0,
+     "time": 1795458540.0,
+     "state": ""
+    },
+    "light": {
+     "value": 0,
+     "time": 1795458540.0,
+     "state": ""
+    },
+    "battery": {
+     "value": 3.9,
+     "time": 1795458540.0,
+     "state": "ok"
+    },
+    "rssi": {
+     "value": -70,
+     "time": 1795458540.0,
+     "state": ""
+    }
+   },
+   "alerts": []
+  }
+ ],
+ "alerts": {
+  "active": 0,
+  "items": []
+ }
+}
