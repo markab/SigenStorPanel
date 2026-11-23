@@ -1552,6 +1552,25 @@ int run_sheet_shots(const std::string& directory) {
   check(!settings_sheet_typing() && s_sheet_code == "k7mq4xrp9tbzh2wdc8nf" &&
             strcmp(s_sheet_data.server_code, "...c8nf") == 0,
         "a code saves tidied, and shows masked");
+
+  // An EnViOT server, first set: saved tidied, and the restart bar offers to
+  // add its screen.
+  settings_sheet_show_entry(SheetEntry::EnviotLink);
+  for (const char* c = "https://enviot.example.com/kiosk-enroll?token=ABCD-1234-EFGH-5678-JKMN";
+       *c; ++c) {
+    settings_sheet_type_key(*c);
+  }
+  settings_sheet_type_key('\r');
+  // Long enough for the buttons it enables to finish fading in.
+  run_frames(400);
+  check(!settings_sheet_typing() && s_sheet_enviot_base == "https://enviot.example.com" &&
+            s_sheet_enviot_code == "abcd1234efgh5678jkmn" &&
+            strcmp(s_sheet_data.enviot_code, "...jkmn") == 0,
+        "an EnViOT link saves its server and its code, tidied");
+  failures += save_shot(directory, "sheet_5i_enviot_restart") ? 0 : 1;
+  s_sheet_enviot_base.clear();
+  s_sheet_enviot_code.clear();
+  show_sheet_enviot();
   settings_sheet_close(false);
 
   const SheetData before_plant = s_sheet_data;

@@ -365,8 +365,9 @@ the panel can show them on a screen of its own, beside whichever SigenStor sourc
 2. On the panel, open **Settings → Data**, tap **Enter link** under **EnViOT**, and type or
    paste the link. Over HTTPS the certificate is checked, as for the SigenStor server; on
    your own network `http://` to EnViOT Display's address works too.
-3. Restart the panel (**Device → Restart**). The **Environment** screen appears after
-   **Events**; it can be hidden or left out of the cycle under **Screens** like any other.
+3. Tap **Restart** on the bar along the bottom of Settings ("Restart to apply: Environment
+   screen"). The **Environment** screen appears after **Events**; it can be hidden or left
+   out of the cycle under **Screens** like any other.
 
 The panel reads the sensors once a minute and each one's 24-hour range every five minutes.
 The code is read-only: a kiosk can see the readings but change nothing. If EnViOT Display

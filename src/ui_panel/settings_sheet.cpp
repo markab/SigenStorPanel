@@ -29,6 +29,7 @@ enum RestartReason : uint8_t {
   RESTART_SOURCE = 1u << 1,
   RESTART_FLIP = 1u << 2,
   RESTART_NAME = 1u << 3,
+  RESTART_ENVIOT = 1u << 4,  // set or forgotten: its screen is built at boot
 };
 
 // ------------------------------------------------------------------- state ---
@@ -47,6 +48,7 @@ bool s_have_boot_data = false;
 bool s_have_boot_display = false;
 uint16_t s_boot_visible = 0xFFFF;
 DataSource s_boot_source = DataSource::Server;
+bool s_boot_enviot = false;
 bool s_boot_flipped = false;
 
 bool s_open = false;
@@ -226,6 +228,11 @@ void refresh_restart_bar() {
   if (s_device.host_pending) {
     reasons |= RESTART_NAME;
   }
+  // A new address or code for a server already set is read at once; only
+  // setting one up or forgetting it adds or removes the screen.
+  if (s_have_boot_data && (s_data.enviot_host[0] != '\0') != s_boot_enviot) {
+    reasons |= RESTART_ENVIOT;
+  }
   if (reasons == 0) {
     lv_obj_add_flag(s_restart_bar, LV_OBJ_FLAG_HIDDEN);
     return;
@@ -250,6 +257,11 @@ void refresh_restart_bar() {
   if (reasons & RESTART_NAME) {
     strncat(line, separator, sizeof(line) - strlen(line) - 1);
     strncat(line, "device name", sizeof(line) - strlen(line) - 1);
+    separator = ", ";
+  }
+  if (reasons & RESTART_ENVIOT) {
+    strncat(line, separator, sizeof(line) - strlen(line) - 1);
+    strncat(line, "Environment screen", sizeof(line) - strlen(line) - 1);
   }
   lv_label_set_text(s_restart_text, line);
   lv_obj_clear_flag(s_restart_bar, LV_OBJ_FLAG_HIDDEN);
@@ -1974,6 +1986,7 @@ void settings_sheet_set_data(const SheetData& data) {
   if (!s_have_boot_data) {
     s_have_boot_data = true;
     s_boot_source = data.source;
+    s_boot_enviot = data.enviot_host[0] != '\0';
   }
   refresh_data();
 }
