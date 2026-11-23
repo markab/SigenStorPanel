@@ -59,6 +59,13 @@ struct Settings {
   // The server's read-only kiosk token. 365-day, revocable.
   String token;
 
+  // An EnViOT Display server, for the Environment screen. Set apart from the
+  // data source: it is a second server, not another way to read the plant.
+  // "https://host" or "http://datahub.local:8000", and its kiosk code, tidied
+  // (kiosk_code.h). Both empty: no Environment screen.
+  String enviot_base_url;
+  String enviot_code;
+
   // Home Assistant REST API. Entity IDs are indexed by the semantic HaEntity
   // enum; empty strings are genuinely unconfigured and no integration naming is
   // assumed.
@@ -277,4 +284,12 @@ String settings_ha_token_masked();
 // Wipes the server URL and token. Saved WiFi networks are net.cpp's and are not
 // touched here.
 void settings_forget_server();
+
+// The EnViOT Display server and its kiosk code. A blank code keeps the stored
+// one. False if NVS rejected the write.
+bool settings_set_enviot(const String& base_url, const String& code);
+// The code as settings_token_masked() shows a token.
+String settings_enviot_code_masked();
+// Wipes both: the Environment screen goes at the next restart.
+void settings_forget_enviot();
 void settings_forget_home_assistant();

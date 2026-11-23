@@ -29,6 +29,7 @@
 #include "board_config.h"
 #include "day_series.h"
 #include "enrol_url.h"
+#include "enviot.h"
 #include "events.h"
 #include "forecast_store.h"
 #include "ha_catalog.h"
@@ -119,6 +120,28 @@ void load_events(const std::string& directory) {
   }
   printf("[sim] events: %s current, %u past\n", s_events.has_current ? "one" : "no",
          static_cast<unsigned>(s_events.past_count));
+}
+
+// test/fixtures/enviot_live.json and enviot_day.json, an EnViOT Display
+// server's readings and 24-hour ranges, for the Environment screen. Made-up
+// sensors; the panel reads them every minute and five minutes.
+EnvReadings s_environment;
+
+void load_environment(const std::string& directory) {
+  std::string live;
+  std::string day;
+  if (!read_file(directory + "/enviot_live.json", &live) ||
+      !enviot_parse_live(live.c_str(), live.size(), &s_environment)) {
+    printf("[sim] no usable enviot_live.json: the environment screen waits\n");
+    s_environment = EnvReadings();
+    return;
+  }
+  if (read_file(directory + "/enviot_day.json", &day)) {
+    enviot_parse_day(day.c_str(), day.size(), &s_environment);
+  }
+  s_environment.status = EnvStatus::Ok;
+  s_environment.has_readings = true;
+  printf("[sim] environment: %u sensors\n", static_cast<unsigned>(s_environment.count));
 }
 
 bool read_file(const std::string& path, std::string* out) {
@@ -622,6 +645,41 @@ bool save_sheet_server(const char* base, const char* code, char* error, size_t s
   return start_live(s_sheet_base, s_sheet_code);
 }
 
+// The sim's EnViOT server and code, for the Data page only: the Environment
+// screen here always shows the fixtures.
+std::string s_sheet_enviot_base;
+std::string s_sheet_enviot_code;
+
+void show_sheet_enviot() {
+  const size_t at = s_sheet_enviot_base.find("://");
+  snprintf(s_sheet_data.enviot_host, sizeof(s_sheet_data.enviot_host), "%s",
+           at == std::string::npos ? s_sheet_enviot_base.c_str()
+                                   : s_sheet_enviot_base.c_str() + at + 3);
+  const size_t length = s_sheet_enviot_code.size();
+  if (length == 0) {
+    s_sheet_data.enviot_code[0] = '\0';
+  } else {
+    snprintf(s_sheet_data.enviot_code, sizeof(s_sheet_data.enviot_code), "...%s",
+             s_sheet_enviot_code.c_str() + (length > 4 ? length - 4 : 0));
+  }
+  settings_sheet_set_data(s_sheet_data);
+}
+
+bool save_sheet_enviot(const char* base, const char* code, char* error, size_t size) {
+  char tidy[KIOSK_CODE_SIZE] = {};
+  if (code[0] != '\0' && !kiosk_code_tidy(code, tidy, sizeof(tidy))) {
+    snprintf(error, size, "Not a kiosk code. A code is 20 letters and digits");
+    return false;
+  }
+  s_sheet_enviot_base = base;
+  if (tidy[0] != '\0') {
+    s_sheet_enviot_code = tidy;
+  }
+  printf("[sim] enviot %s%s\n", base, s_sheet_enviot_code.empty() ? ", no code yet" : "");
+  show_sheet_enviot();
+  return true;
+}
+
 // ---------------------------------------------------------- settings sheet ---
 //
 // Stand-in for the device's settings store, WiFi and poll task. Every action
@@ -955,6 +1013,36 @@ SheetActions sim_sheet_actions() {
     // A copy: save_sheet_server() assigns s_sheet_base from what it is given.
     return save_sheet_server(std::string(s_sheet_base).c_str(), code, error, size);
   };
+  actions.set_enviot_link = [](const char* link, char* error, size_t size) {
+    const EnrolUrl parsed = enrol_url_parse(link);
+    if (!parsed.ok || parsed.token[0] == '\0') {
+      snprintf(error, size, parsed.ok ? "That link has no code in it"
+                                      : "Not a link. It should start https:// or http://");
+      return false;
+    }
+    return save_sheet_enviot(parsed.base, parsed.token, error, size);
+  };
+  actions.set_enviot_address = [](const char* url, char* error, size_t size) {
+    const EnrolUrl parsed = enrol_url_parse(url);
+    if (!parsed.ok) {
+      snprintf(error, size, "It should start https:// or http://");
+      return false;
+    }
+    return save_sheet_enviot(parsed.base, parsed.token, error, size);
+  };
+  actions.set_enviot_code = [](const char* code, char* error, size_t size) {
+    if (s_sheet_enviot_base.empty()) {
+      snprintf(error, size, "Set the server first");
+      return false;
+    }
+    return save_sheet_enviot(std::string(s_sheet_enviot_base).c_str(), code, error, size);
+  };
+  actions.forget_enviot = []() {
+    printf("[sim] forget enviot\n");
+    s_sheet_enviot_base.clear();
+    s_sheet_enviot_code.clear();
+    show_sheet_enviot();
+  };
   actions.set_ha_address = [](const char* url, char* error, size_t size) {
     const EnrolUrl parsed = enrol_url_parse(url);
     if (!parsed.ok) {
@@ -1111,6 +1199,8 @@ void build_views() {
   config.with_detailed_screens = s_with_detailed_screens;
   // --modbus previews a source without events too.
   config.with_events_screen = s_with_detailed_screens;
+  // EnViOT is set up apart from the source, so the sim always has it.
+  config.with_environment_screen = true;
   ui_create(screen, config);
   ui_set_day_step(sim_step_day);
 
@@ -1607,6 +1697,35 @@ int run_screenshot_pass(const std::string& output_directory) {
     ui_update_events(s_events);
   }
 
+  // The environment screen, likewise, in the states one file does not show: an
+  // alert and a sensor gone quiet, two sensors, and before anything has arrived.
+  for (int screen = 0; screen < ui_screen_count(); ++screen) {
+    if (ui_screen_at(screen) != PUCK_SCREEN_ENVIRONMENT) {
+      continue;
+    }
+    ui_show_screen(screen);
+    EnvReadings variant = s_environment;
+    snprintf(variant.devices[0].alert, sizeof(variant.devices[0].alert), "Frost risk");
+    variant.devices[1].stale = true;
+    variant.devices[1].last_seen = variant.now - 2 * 3600 - 300;
+    ui_update_environment(variant);
+    lv_refr_now(nullptr);
+    failures += save_shot(output_directory, "environment_alert_stale") ? 0 : 1;
+    variant = s_environment;
+    variant.devices[0] = variant.devices[2];
+    variant.devices[1] = variant.devices[3];
+    variant.count = 2;
+    ui_update_environment(variant);
+    lv_refr_now(nullptr);
+    failures += save_shot(output_directory, "environment_two") ? 0 : 1;
+    variant = EnvReadings();
+    variant.status = EnvStatus::Refused;
+    ui_update_environment(variant);
+    lv_refr_now(nullptr);
+    failures += save_shot(output_directory, "environment_refused") ? 0 : 1;
+    ui_update_environment(s_environment);
+  }
+
   // The banners are not screens, but each is a line of text that has to fit
   // across the top without covering what is under it, which is exactly the thing
   // this pass exists to check. Once each, over whichever fixture is loaded.
@@ -1808,6 +1927,8 @@ int main(int argc, char** argv) {
   build_views();
   load_events(directory);
   ui_update_events(s_events);
+  load_environment(directory);
+  ui_update_environment(s_environment);
   if (s_startup_tilt != 0) {
     ui_set_fine_rotation(s_startup_tilt);
   }

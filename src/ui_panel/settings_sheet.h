@@ -104,6 +104,10 @@ struct SheetData {
   bool ha_set = false;
   char ha_host[SHEET_TEXT] = {};
   uint32_t poll_s = 5;
+  // An EnViOT Display server, for the Environment screen. Set apart from the
+  // source. Empty: not set.
+  char enviot_host[SHEET_TEXT] = {};
+  char enviot_code[12] = {};  // masked, like server_code
 };
 
 // What a scan found, for the network picker.
@@ -158,6 +162,9 @@ enum class SheetEntry : uint8_t {
   HaAddress,
   HaToken,
   DeviceName,
+  EnviotLink,
+  EnviotAddress,
+  EnviotCode,
 };
 
 // Which Home Assistant sensor supplies each role, indexed like HA_ENTITIES in
@@ -251,6 +258,11 @@ struct SheetActions {
   // The link's two halves, as the Admin page also shows them. Each keeps the other.
   bool (*set_server_address)(const char* url, char* error, size_t error_size) = nullptr;
   bool (*set_kiosk_code)(const char* code, char* error, size_t error_size) = nullptr;
+  // The same three for an EnViOT Display server, and forgetting it.
+  bool (*set_enviot_link)(const char* link, char* error, size_t error_size) = nullptr;
+  bool (*set_enviot_address)(const char* url, char* error, size_t error_size) = nullptr;
+  bool (*set_enviot_code)(const char* code, char* error, size_t error_size) = nullptr;
+  void (*forget_enviot)() = nullptr;
   // Asks for Home Assistant's sensor list; it arrives through
   // settings_sheet_set_ha_list(). Must not block.
   void (*load_ha_list)() = nullptr;

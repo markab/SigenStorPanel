@@ -17,6 +17,7 @@
 
 #include "board_config.h"
 #include "device/buttons.h"
+#include "device/enviot_fetch.h"
 #include "device/net.h"
 #include "device/poller.h"
 #include "device/power.h"
@@ -282,6 +283,16 @@ void refresh_ui() {
       ui_update_events(*events);
     }
   }
+  // The EnViOT readings, likewise, whenever a read finishes.
+  static EnvReadings* environment = nullptr;
+  static uint32_t seen_environment_generation = 0;
+  if (environment == nullptr) {
+    void* block = psram_alloc(sizeof(EnvReadings));
+    environment = block != nullptr ? new (block) EnvReadings() : nullptr;
+  }
+  if (environment != nullptr && enviot_fetch_take(environment, &seen_environment_generation)) {
+    ui_update_environment(*environment);
+  }
 
   if (snapshot_changed) {
     ui_update(snapshot);
@@ -389,6 +400,8 @@ void setup() {
       data_source_capabilities(settings_get().source);
   ui_config.with_detailed_screens = source_capabilities.detailed_flows;
   ui_config.with_events_screen = source_capabilities.events;
+  // EnViOT is set apart from the source: its screen is there whenever a server is.
+  ui_config.with_environment_screen = !settings_get().enviot_base_url.isEmpty();
   ui_config.visible = settings_get().screens_visible;
   ui_config.rotate = settings_get().screens_rotate;
   {
@@ -435,6 +448,7 @@ void setup() {
   log_stage("net");
   poller_begin();
   log_stage("poller");
+  enviot_fetch_begin();
   updater_begin();
 
   Serial.println("[boot] ready");

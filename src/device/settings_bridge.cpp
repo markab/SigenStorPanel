@@ -9,6 +9,7 @@
 #include "display.h"
 #include "display_dsi.h"
 #include "enrol_url.h"
+#include "enviot_fetch.h"
 #include "ha_catalog_fetch.h"
 #include "kiosk_code.h"
 #include "modbus_api.h"
@@ -76,6 +77,9 @@ void push_screens() {
   if (!caps.events) {
     available &= static_cast<PuckScreenMask>(~PUCK_EVENTS_SCREENS);
   }
+  if (s.enviot_base_url.isEmpty()) {
+    available &= static_cast<PuckScreenMask>(~PUCK_PANEL_ONLY_SCREENS);
+  }
   screens.available = available;
   screens.rotate_enabled = s.rotate_enabled;
   screens.rotate_s = s.rotate_s;
@@ -101,6 +105,11 @@ void push_data() {
   }
   data.ha_set = settings_home_assistant_is_configured();
   copy_host(data.ha_host, sizeof(data.ha_host), s.ha_base_url);
+  copy_host(data.enviot_host, sizeof(data.enviot_host), s.enviot_base_url);
+  if (!s.enviot_code.isEmpty()) {
+    snprintf(data.enviot_code, sizeof(data.enviot_code), "%s",
+             settings_enviot_code_masked().c_str());
+  }
   data.poll_s = s.poll_interval_s;
   settings_sheet_set_data(data);
 }
@@ -119,6 +128,24 @@ bool save_server(const String& base, const char* code, char* error, size_t size)
     return false;
   }
   poller_wake();
+  push_data();
+  return true;
+}
+
+// The EnViOT server and code, as save_server() does the plant's. The code is
+// tidied the same way: EnViOT Display matches it however it was typed, but the
+// cookie should carry the one spelling it hashes.
+bool save_enviot(const String& base, const char* code, char* error, size_t size) {
+  char tidy[KIOSK_CODE_SIZE] = {};
+  if (code[0] != '\0' && !kiosk_code_tidy(code, tidy, sizeof(tidy))) {
+    snprintf(error, size, "Not a kiosk code. A code is 20 letters and digits");
+    return false;
+  }
+  if (!settings_set_enviot(base, String(tidy))) {
+    snprintf(error, size, "Could not save it");
+    return false;
+  }
+  enviot_fetch_wake();
   push_data();
   return true;
 }
@@ -416,6 +443,41 @@ SheetActions actions() {
       return false;
     }
     return save_server(String(settings_get().base_url), code, error, size);
+  };
+  a.set_enviot_link = [](const char* link, char* error, size_t size) {
+    const EnrolUrl parsed = enrol_url_parse(link);
+    if (!parsed.ok) {
+      snprintf(error, size, "Not a link. It should start https:// or http://");
+      return false;
+    }
+    if (parsed.token[0] == '\0') {
+      snprintf(error, size, "That link has no code in it");
+      return false;
+    }
+    return save_enviot(String(parsed.base), parsed.token, error, size);
+  };
+  a.set_enviot_address = [](const char* url, char* error, size_t size) {
+    const EnrolUrl parsed = enrol_url_parse(url);
+    if (!parsed.ok) {
+      snprintf(error, size, "It should start https:// or http://");
+      return false;
+    }
+    return save_enviot(String(parsed.base), parsed.token, error, size);
+  };
+  a.set_enviot_code = [](const char* code, char* error, size_t size) {
+    if (settings_get().enviot_base_url.isEmpty()) {
+      snprintf(error, size, "Set the server first");
+      return false;
+    }
+    if (code[0] == '\0') {
+      snprintf(error, size, "Type the code first");
+      return false;
+    }
+    return save_enviot(String(settings_get().enviot_base_url), code, error, size);
+  };
+  a.forget_enviot = []() {
+    settings_forget_enviot();
+    push_data();
   };
   a.set_ha_address = [](const char* url, char* error, size_t size) {
     const EnrolUrl parsed = enrol_url_parse(url);

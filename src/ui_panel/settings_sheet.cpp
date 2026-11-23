@@ -119,6 +119,10 @@ lv_obj_t* s_ha_host = nullptr;
 lv_obj_t* s_ha_token = nullptr;
 lv_obj_t* s_ha_sensors = nullptr;
 lv_obj_t* s_modbus_devices = nullptr;
+lv_obj_t* s_enviot_host = nullptr;
+lv_obj_t* s_enviot_code = nullptr;
+lv_obj_t* s_enviot_set_code = nullptr;
+lv_obj_t* s_enviot_forget = nullptr;
 lv_obj_t* s_poll_slider = nullptr;
 lv_obj_t* s_poll_value = nullptr;
 
@@ -183,6 +187,9 @@ enum class EntryKind : uint8_t {
   HaAddress,
   HaToken,
   DeviceName,
+  EnviotLink,
+  EnviotAddress,
+  EnviotCode,
 };
 EntryKind s_entry_kind = EntryKind::WifiPassword;
 char s_entry_error[64] = {};
@@ -328,7 +335,9 @@ void refresh_screens() {
                                 lv_color_hex(available ? PUCK_COLOUR_TEXT : PUCK_COLOUR_MUTED),
                                 LV_PART_MAIN);
     if (!available) {
-      lv_label_set_text(s_screen_note[i], "needs the server");
+      lv_label_set_text(s_screen_note[i], screen == PUCK_SCREEN_ENVIRONMENT
+                                              ? "needs EnViOT"
+                                              : "needs the server");
     } else if (fixed) {
       lv_label_set_text(s_screen_note[i], "always shown");
     } else {
@@ -403,6 +412,20 @@ void refresh_data() {
   // A code is one server's, so the server comes first.
   set_disabled(s_server_set_code, !has_server);
   set_disabled(s_server_forget, !has_server && !has_code);
+
+  const bool has_enviot = s_data.enviot_host[0] != '\0';
+  const bool has_enviot_code = s_data.enviot_code[0] != '\0';
+  lv_label_set_text(s_enviot_host, has_enviot ? s_data.enviot_host : "Not set");
+  lv_obj_set_style_text_color(s_enviot_host,
+                              lv_color_hex(has_enviot ? PUCK_COLOUR_TEXT : PUCK_COLOUR_MUTED),
+                              LV_PART_MAIN);
+  lv_label_set_text(s_enviot_code, has_enviot_code ? s_data.enviot_code : has_enviot ? "Not set" : "--");
+  lv_obj_set_style_text_color(
+      s_enviot_code,
+      lv_color_hex(has_enviot_code ? PUCK_COLOUR_TEXT : has_enviot ? PUCK_COLOUR_WARN : PUCK_COLOUR_MUTED),
+      LV_PART_MAIN);
+  set_disabled(s_enviot_set_code, !has_enviot);
+  set_disabled(s_enviot_forget, !has_enviot && !has_enviot_code);
 
   lv_label_set_text(s_modbus_value, s_data.modbus_host[0] != '\0' ? s_data.modbus_host : "Tap to set");
   lv_obj_set_style_text_color(
@@ -733,6 +756,15 @@ void on_forget_server(lv_event_t* /*event*/) {
   }
 }
 
+void on_forget_enviot(lv_event_t* /*event*/) {
+  if (!confirmed(s_enviot_forget, "Forget EnViOT?")) {
+    return;
+  }
+  if (s_actions.forget_enviot != nullptr) {
+    s_actions.forget_enviot();
+  }
+}
+
 void on_poll(lv_event_t* event) {
   s_data.poll_s = POLL_STEPS[lv_slider_get_value(s_poll_slider)];
   if (lv_event_get_code(event) == LV_EVENT_RELEASED && s_actions.set_poll_interval != nullptr) {
@@ -974,7 +1006,7 @@ void build_screens(lv_obj_t* tile) {
     const int i = listed++;
     s_listed[i] = screen;
     lv_obj_t* line = row(left);
-    lv_obj_set_height(line, 40);  // eight screens to a card
+    lv_obj_set_height(line, 36);  // nine screens to a card
 
     lv_obj_t* names = plain(line);
     lv_obj_set_size(names, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
@@ -1209,17 +1241,48 @@ void build_data(lv_obj_t* tile) {
   lv_obj_add_event_cb(choose, [](lv_event_t*) { ha_open_sensors(); }, LV_EVENT_CLICKED, nullptr);
   hint(ha, "Which sensor gives each figure, picked from Home Assistant's own list.");
 
-  lv_obj_t* right = card(body, 360, CARD_H);
-  caption(right, "READING");
-  s_poll_slider = labelled_slider(right, "Every", 0,
+  // Two cards on the right: how often the plant is read, and the EnViOT server,
+  // which is set alongside whichever source is chosen.
+  lv_obj_t* column = plain(body);
+  lv_obj_set_size(column, 360, CARD_H);
+  lv_obj_set_flex_flow(column, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(column, CARD_GAP / 2, LV_PART_MAIN);
+
+  lv_obj_t* reading = card(column, 360, LV_SIZE_CONTENT);
+  caption(reading, "READING");
+  s_poll_slider = labelled_slider(reading, "Every", 0,
                                   static_cast<int32_t>(sizeof(POLL_STEPS) / sizeof(POLL_STEPS[0])) - 1,
                                   &s_poll_value);
   lv_obj_add_event_cb(s_poll_slider, on_poll, LV_EVENT_VALUE_CHANGED, nullptr);
   lv_obj_add_event_cb(s_poll_slider, on_poll, LV_EVENT_RELEASED, nullptr);
-  hint(right, "How often the live figures are read. The day's charts update every five "
-              "minutes whatever this says.");
-  spacer(right);
-  hint(right, "A change of source takes effect after a restart.");
+  hint(reading, "A change of source, or of EnViOT, takes effect after a restart.");
+
+  lv_obj_t* enviot = card(column, 360, LV_SIZE_CONTENT);
+  lv_obj_set_flex_grow(enviot, 1);
+  caption(enviot, "ENVIOT");
+  lv_obj_t* enviot_box = plain(enviot);
+  lv_obj_set_size(enviot_box, LV_PCT(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(enviot_box, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(enviot_box, 8, LV_PART_MAIN);
+  s_enviot_host = detail(enviot_box, "Server");
+  lv_obj_set_style_max_width(s_enviot_host, 220, LV_PART_MAIN);
+  s_enviot_code = detail(enviot_box, "Code");
+  lv_obj_t* enviot_buttons = button_row(enviot_box);
+  lv_obj_t* enviot_link = button(enviot_buttons, "Enter link", COLOUR_ACCENT, PUCK_COLOUR_TEXT);
+  lv_obj_add_event_cb(
+      enviot_link, [](lv_event_t*) { settings_sheet_show_entry(SheetEntry::EnviotLink); },
+      LV_EVENT_CLICKED, nullptr);
+  s_enviot_set_code = button(enviot_buttons, "Set code", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  lv_obj_add_event_cb(
+      s_enviot_set_code, [](lv_event_t*) { settings_sheet_show_entry(SheetEntry::EnviotCode); },
+      LV_EVENT_CLICKED, nullptr);
+  lv_obj_t* enviot_more = button_row(enviot_box);
+  lv_obj_t* enviot_server = button(enviot_more, "Set server", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  lv_obj_add_event_cb(
+      enviot_server, [](lv_event_t*) { settings_sheet_show_entry(SheetEntry::EnviotAddress); },
+      LV_EVENT_CLICKED, nullptr);
+  s_enviot_forget = button(enviot_more, "Forget", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  lv_obj_add_event_cb(s_enviot_forget, on_forget_enviot, LV_EVENT_CLICKED, nullptr);
 }
 
 void build_device(lv_obj_t* tile) {
@@ -1385,7 +1448,8 @@ void apply_keyboard_mode() {
                      : url ? KEYS_LOWER_URL
                            : KEYS_LOWER;
   // A code and a network name are both lower case, digits and dashes.
-  if (s_entry_kind == EntryKind::KioskCode || s_entry_kind == EntryKind::DeviceName) {
+  if (s_entry_kind == EntryKind::KioskCode || s_entry_kind == EntryKind::EnviotCode ||
+      s_entry_kind == EntryKind::DeviceName) {
     map = KEYS_CODE;
   }
   lv_btnmatrix_set_map(s_keyboard, map);
@@ -1433,7 +1497,8 @@ void refresh_entry() {
   static const char* const TITLES[] = {
       "",           "Enrolment link",         "Server address",
       "Kiosk code", "Home Assistant address", "Home Assistant token",
-      "Device name",
+      "Device name",          "EnViOT link",            "EnViOT server",
+      "EnViOT code",
   };
   static const char* const HINTS[] = {
       "",
@@ -1443,6 +1508,9 @@ void refresh_entry() {
       "For example http://homeassistant.local:8123",
       "A long-lived access token, from your profile page in Home Assistant",
       "Letters, digits and dashes. The panel answers as this name with .local",
+      "The enrolment link from EnViOT Display's Kiosk devices",
+      "Where EnViOT Display is, starting https:// or http://",
+      "The code from EnViOT Display's Kiosk devices, with or without its dashes",
   };
   const int kind = static_cast<int>(s_entry_kind);
   lv_label_set_text(s_join_title, TITLES[kind]);
@@ -1536,6 +1604,9 @@ void save_entry() {
       : s_entry_kind == EntryKind::KioskCode     ? actions.set_kiosk_code
       : s_entry_kind == EntryKind::HaAddress     ? actions.set_ha_address
       : s_entry_kind == EntryKind::HaToken       ? actions.set_ha_token
+      : s_entry_kind == EntryKind::EnviotLink    ? actions.set_enviot_link
+      : s_entry_kind == EntryKind::EnviotAddress ? actions.set_enviot_address
+      : s_entry_kind == EntryKind::EnviotCode    ? actions.set_enviot_code
                                                  : actions.set_device_name;
   s_entry_error[0] = '\0';
   if (save != nullptr && !save(s_password, s_entry_error, sizeof(s_entry_error))) {
@@ -2061,6 +2132,9 @@ void settings_sheet_show_entry(SheetEntry entry) {
                  : entry == SheetEntry::KioskCode     ? EntryKind::KioskCode
                  : entry == SheetEntry::HaAddress     ? EntryKind::HaAddress
                  : entry == SheetEntry::HaToken       ? EntryKind::HaToken
+                 : entry == SheetEntry::EnviotLink    ? EntryKind::EnviotLink
+                 : entry == SheetEntry::EnviotAddress ? EntryKind::EnviotAddress
+                 : entry == SheetEntry::EnviotCode    ? EntryKind::EnviotCode
                                                       : EntryKind::DeviceName;
   s_entry_error[0] = '\0';
   memset(s_password, 0, sizeof(s_password));
@@ -2069,7 +2143,8 @@ void settings_sheet_show_entry(SheetEntry entry) {
   // empty.
   if (s_entry_kind == EntryKind::HaAddress) {
     snprintf(s_password, sizeof(s_password), "http://");
-  } else if (s_entry_kind == EntryKind::ServerAddress) {
+  } else if (s_entry_kind == EntryKind::ServerAddress ||
+             s_entry_kind == EntryKind::EnviotAddress) {
     snprintf(s_password, sizeof(s_password), "https://");
   } else if (s_entry_kind == EntryKind::DeviceName) {
     // The current name, to edit rather than retype.

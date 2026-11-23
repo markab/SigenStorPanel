@@ -15,6 +15,8 @@ constexpr const char* KEY_BASE_URL = "base_url";
 constexpr const char* KEY_TOKEN = "token";
 constexpr const char* KEY_HA_URL = "ha_url";
 constexpr const char* KEY_HA_TOKEN = "ha_token";
+constexpr const char* KEY_ENVIOT_URL = "env_url";
+constexpr const char* KEY_ENVIOT_CODE = "env_code";
 constexpr const char* KEY_HA_SOLAR_SOURCE = "ha_sol_src";
 constexpr const char* KEY_POLL = "poll_s";
 constexpr const char* KEY_BRIGHTNESS = "bright";
@@ -90,6 +92,8 @@ void settings_begin() {
   }
   s_settings.base_url = prefs.getString(KEY_BASE_URL, "");
   s_settings.token = prefs.getString(KEY_TOKEN, "");
+  s_settings.enviot_base_url = prefs.getString(KEY_ENVIOT_URL, "");
+  s_settings.enviot_code = prefs.getString(KEY_ENVIOT_CODE, "");
   if (prefs.isKey(KEY_HA_URL)) {
     s_settings.ha_base_url = prefs.getString(KEY_HA_URL, "");
   }
@@ -581,6 +585,49 @@ void settings_forget_server() {
   s_settings.base_url = "";
   s_settings.token = "";
   Serial.println("[settings] server details cleared");
+}
+
+bool settings_set_enviot(const String& base_url, const String& code) {
+  Preferences prefs;
+  if (!prefs.begin(NAMESPACE, /*readOnly=*/false)) {
+    return false;
+  }
+  const bool ok = prefs.putString(KEY_ENVIOT_URL, base_url) > 0 &&
+                  (code.isEmpty() || prefs.putString(KEY_ENVIOT_CODE, code) > 0);
+  prefs.end();
+  if (!ok) {
+    return false;
+  }
+  s_settings.enviot_base_url = base_url;
+  if (!code.isEmpty()) {
+    s_settings.enviot_code = code;
+  }
+  Serial.printf("[settings] EnViOT server set to %s (code %s)\n", base_url.c_str(),
+                settings_enviot_code_masked().c_str());
+  return true;
+}
+
+String settings_enviot_code_masked() {
+  const size_t length = s_settings.enviot_code.length();
+  if (length == 0) {
+    return String("(unset)");
+  }
+  if (length <= 4) {
+    return String("****");
+  }
+  return String("...") + s_settings.enviot_code.substring(length - 4);
+}
+
+void settings_forget_enviot() {
+  Preferences prefs;
+  if (prefs.begin(NAMESPACE, /*readOnly=*/false)) {
+    prefs.remove(KEY_ENVIOT_URL);
+    prefs.remove(KEY_ENVIOT_CODE);
+    prefs.end();
+  }
+  s_settings.enviot_base_url = "";
+  s_settings.enviot_code = "";
+  Serial.println("[settings] EnViOT details cleared");
 }
 
 void settings_forget_home_assistant() {
