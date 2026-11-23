@@ -52,7 +52,9 @@
 // picker added `--shot` reached 86% of 256 KB. When the pool runs out LVGL's
 // assert spins forever rather than crashing, so the sim simply hangs. The device
 // allocates from PSRAM and has no such ceiling; this is the gauge `--shot` reads.
-#define LV_MEM_SIZE (384U * 1024U)
+// 512 KB since the Environment screen's four cards (~100 objects) took it past
+// 384 KB, which it had been running at 85% of.
+#define LV_MEM_SIZE (512U * 1024U)
 #endif
 
 // ------------------------------------------------------------------ time ----
@@ -80,6 +82,12 @@
 // 466 px across roughly 1.75", so default padding and widget sizes scale about
 // right for a display held at arm's length.
 #define LV_DPI_DEF 130
+
+// 32-bit coordinates. The tileview lays the screens side by side, 1024 px each,
+// and LVGL 8's default 16-bit coordinates stop at 8191: a ninth screen (the
+// Environment screen) starts at 8192, past the end, so the tileview could not
+// tell which screen was showing and the page dots lit the first one.
+#define LV_USE_LARGE_COORD 1
 
 // ----------------------------------------------------------------- fonts ----
 
