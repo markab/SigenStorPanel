@@ -5,6 +5,8 @@
 
 #include <stdint.h>
 
+#include "enviot.h"
+
 // Which screens the auto-cycle steps through, as PuckScreen bits. Applies at once:
 // it only filters the cycle, unlike which screens exist, which needs a restart.
 void ui_set_rotate_mask(uint16_t mask);  // PuckScreenMask
@@ -14,3 +16,8 @@ void ui_set_rotate_mask(uint16_t mask);  // PuckScreenMask
 // includes waking the poll task to fetch the day (buttons_step_day()).
 using UiDayStep = void (*)(int delta);
 void ui_set_day_step(UiDayStep step);
+
+// The EnViOT Display readings for the Environment screen, whenever a read
+// finishes, good or not (EnvReadings::status). Ignored when the screen was not
+// built (UiConfig::with_environment_screen).
+void ui_update_environment(const EnvReadings& readings);

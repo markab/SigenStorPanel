@@ -14,6 +14,7 @@
 #include "qr_block.h"
 #include "screen_battery.h"
 #include "screen_cost.h"
+#include "screen_environment.h"
 #include "screen_events.h"
 #include "screen_flows.h"
 #include "screen_grid.h"
@@ -116,6 +117,11 @@ uint32_t s_events_tick = 0;
 // How often the events screen re-reads the clock. Its finest unit is a minute.
 constexpr uint32_t EVENTS_REDRAW_S = 15;
 
+// The EnViOT readings, kept for the same reason: "8 min ago" counts on between
+// reads. In PSRAM, allocated with the first readings.
+EnvReadings* s_environment = nullptr;
+uint32_t s_environment_tick = 0;
+
 // What the day-oriented screens are looking at.
 enum class DayState : uint8_t {
   Live,     // no day chosen; they follow the live reading
@@ -156,13 +162,19 @@ char s_qr_url[80] = {};
 // three lines of instruction below.
 constexpr lv_coord_t OVERLAY_QR_PX = 132;
 
-bool events_screen_built() {
+bool screen_built(PuckScreen screen) {
   for (int i = 0; i < s_screen_count; ++i) {
-    if (s_screen_at[i] == PUCK_SCREEN_EVENTS) {
+    if (s_screen_at[i] == screen) {
       return true;
     }
   }
   return false;
+}
+
+void refresh_environment() {
+  if (s_environment != nullptr) {
+    screen_environment_update(*s_environment, lv_tick_elaps(s_environment_tick) / 1000);
+  }
 }
 
 // The screen's view of now: the server's clock when it answered, advanced by how
@@ -249,6 +261,7 @@ void housekeeping_tick(lv_timer_t* /*timer*/) {
   if (++events_elapsed >= EVENTS_REDRAW_S) {
     events_elapsed = 0;
     refresh_events();
+    refresh_environment();
   }
 
   static uint32_t sweep_elapsed = 0;
@@ -287,9 +300,10 @@ bool day_indicator_wanted() {
     return false;
   }
   const PuckScreen screen = ui_screen_at(ui_current_screen());
-  // The events screen neither: its list is not dated by the buttons.
+  // The events screen neither: its list is not dated by the buttons. Nor the
+  // environment screen, which is EnViOT's sensors, not the plant's day.
   return screen != PUCK_SCREEN_POWER && screen != PUCK_SCREEN_SETTINGS &&
-         screen != PUCK_SCREEN_EVENTS;
+         screen != PUCK_SCREEN_EVENTS && screen != PUCK_SCREEN_ENVIRONMENT;
 }
 
 void set_arrow_hidden(lv_obj_t* arrow, bool hidden) {
@@ -465,6 +479,10 @@ lv_obj_t* ui_create(lv_obj_t* parent, const UiConfig& config) {
   if (!config.with_events_screen) {
     wanted &= static_cast<PuckScreenMask>(~PUCK_EVENTS_SCREENS);
   }
+  // Only with an EnViOT Display server set up.
+  if (!config.with_environment_screen) {
+    wanted &= static_cast<PuckScreenMask>(~PUCK_PANEL_ONLY_SCREENS);
+  }
   // Screen 1 is the device's reason to exist and the one every failure mode
   // falls back to. Leaving nothing but the settings screen would look broken.
   wanted |= (1u << PUCK_SCREEN_POWER);
@@ -525,6 +543,9 @@ lv_obj_t* ui_create(lv_obj_t* parent, const UiConfig& config) {
         break;
       case PUCK_SCREEN_EVENTS:
         screen_events_create(s_tiles[i]);
+        break;
+      case PUCK_SCREEN_ENVIRONMENT:
+        screen_environment_create(s_tiles[i]);
         break;
       case PUCK_SCREEN_SETTINGS:
         screen_settings_create(s_tiles[i]);
@@ -775,7 +796,7 @@ void ui_update(const Snapshot& snapshot) {
 }
 
 void ui_update_events(const EventList& events) {
-  if (!events_screen_built()) {
+  if (!screen_built(PUCK_SCREEN_EVENTS)) {
     return;
   }
   if (s_events == nullptr) {
@@ -788,6 +809,28 @@ void ui_update_events(const EventList& events) {
   *s_events = events;
   s_events_tick = lv_tick_get();
   refresh_events();
+}
+
+void ui_update_environment(const EnvReadings& readings) {
+  if (!screen_built(PUCK_SCREEN_ENVIRONMENT)) {
+    return;
+  }
+  if (s_environment == nullptr) {
+    void* block = psram_alloc(sizeof(EnvReadings));
+    if (block == nullptr) {
+      return;
+    }
+    s_environment = new (block) EnvReadings();
+  }
+  // A failed read keeps the readings it had, and its age keeps counting from
+  // when they arrived.
+  if (readings.status == EnvStatus::Ok || !s_environment->has_readings) {
+    *s_environment = readings;
+    s_environment_tick = lv_tick_get();
+  } else {
+    s_environment->status = readings.status;
+  }
+  refresh_environment();
 }
 
 void ui_update_day(const Snapshot& snapshot) {
