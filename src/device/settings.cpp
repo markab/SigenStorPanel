@@ -18,6 +18,7 @@ constexpr const char* KEY_HA_TOKEN = "ha_token";
 constexpr const char* KEY_ENVIOT_URL = "env_url";
 constexpr const char* KEY_ENVIOT_CODE = "env_code";
 constexpr const char* KEY_HA_SOLAR_SOURCE = "ha_sol_src";
+constexpr const char* KEY_HA_EV_KIND = "ha_ev_kind";
 constexpr const char* KEY_POLL = "poll_s";
 constexpr const char* KEY_BRIGHTNESS = "bright";
 constexpr const char* KEY_DIM = "dim_s";
@@ -108,6 +109,13 @@ void settings_begin() {
   if (prefs.isKey(KEY_HA_SOLAR_SOURCE)) {
     s_settings.ha_solar_forecast_source =
         solar_forecast_source_from_stored(prefs.getUChar(KEY_HA_SOLAR_SOURCE, 0));
+  }
+  {
+    // An unknown stored value, from a newer firmware, reads as Auto.
+    const uint8_t ev_kind = prefs.getUChar(KEY_HA_EV_KIND, 0);
+    s_settings.ha_ev_kind = ev_kind <= static_cast<uint8_t>(HaEvKind::Dc)
+                                ? static_cast<HaEvKind>(ev_kind)
+                                : HaEvKind::Auto;
   }
   s_settings.poll_interval_s = prefs.getUInt(KEY_POLL, s_settings.poll_interval_s);
   s_settings.brightness = prefs.getUChar(KEY_BRIGHTNESS, s_settings.brightness);
@@ -238,6 +246,19 @@ bool settings_set_server(const String& base_url, const String& token) {
   Serial.printf("[settings] server set to %s (token %s)\n", base_url.c_str(),
                 settings_token_masked().c_str());
   return true;
+}
+
+bool settings_set_ha_ev_kind(HaEvKind kind) {
+  Preferences prefs;
+  if (!prefs.begin(NAMESPACE, /*readOnly=*/false)) {
+    return false;
+  }
+  const bool ok = prefs.putUChar(KEY_HA_EV_KIND, static_cast<uint8_t>(kind)) > 0;
+  prefs.end();
+  if (ok) {
+    s_settings.ha_ev_kind = kind;
+  }
+  return ok;
 }
 
 bool settings_set_home_assistant(const String& base_url, const String& token,

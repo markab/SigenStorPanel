@@ -75,6 +75,10 @@ struct Settings {
   // Absent on older NVS, where Disabled preserves HA's original no-forecast
   // behaviour. Modbus and Server ignore this HA-specific preference.
   SolarForecastSource ha_solar_forecast_source = SolarForecastSource::Disabled;
+  // Whether the mapped EV charger is AC or DC, which decides whether it comes
+  // off house load (see power_balance.h). Absent on older NVS: Auto, which reads
+  // the default dc_charger entity as DC. Same key as SigenStorPuck's, ha_ev_kind.
+  HaEvKind ha_ev_kind = HaEvKind::Auto;
 
   // The gateway or inverter exposing Modbus TCP. Enable access for this device's
   // IP in the Sigen app, which whitelists by address.
@@ -201,6 +205,9 @@ bool settings_set_home_assistant(const String& base_url, const String& token,
                                  const String* entities, size_t count,
                                  SolarForecastSource forecast_source);
 bool settings_home_assistant_is_configured();
+// Set on its own, from the Home Assistant sensors list. SigenStorPuck saves it
+// with the rest of the record; the panel changes one thing at a time.
+bool settings_set_ha_ev_kind(HaEvKind kind);
 
 // Which data source to use on the next boot.
 bool settings_set_source(DataSource source);
