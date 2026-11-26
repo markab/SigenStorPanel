@@ -429,18 +429,24 @@ void screen_power_update(const Snapshot& snapshot) {
   set_leg(LEG_HOME, snapshot.power.home, FLOW_OUTWARD, "kW on load", true);
   set_leg(LEG_EV, snapshot.power.ev, FLOW_OUTWARD, "kW charge", true);
 
+  // Off grid (the gateway's contactor open): "Off" in the warning colour, not the
+  // muted "--" an unread register gets, so islanding does not read as missing
+  // data. The GRID name dims until the grid is back. As on the Puck.
   if (snapshot.power.off_grid) {
     Leg& grid = s_legs[LEG_GRID];
     lv_obj_clear_flag(grid.box, LV_OBJ_FLAG_HIDDEN);
-    lv_label_set_text(grid.value, "--");
-    lv_label_set_text(grid.detail, "off grid");
-    lv_obj_set_style_text_color(grid.value, lv_color_hex(PUCK_COLOUR_MUTED), LV_PART_MAIN);
+    lv_label_set_text(grid.value, "Off");
+    lv_label_set_text(grid.detail, "contactor open");
+    lv_obj_set_style_text_color(grid.value, lv_color_hex(PUCK_COLOUR_WARN), LV_PART_MAIN);
+    lv_obj_set_style_text_color(grid.name, lv_color_hex(PUCK_COLOUR_MUTED), LV_PART_MAIN);
     grid.direction = FLOW_IDLE;
     for (int i = 0; i < grid.dot_count; ++i) {
       lv_obj_add_flag(grid.dots[i], LV_OBJ_FLAG_HIDDEN);
     }
   } else {
     lv_obj_set_style_text_color(s_legs[LEG_GRID].value, lv_color_hex(PUCK_COLOUR_TEXT),
+                                LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_legs[LEG_GRID].name, lv_color_hex(PUCK_COLOUR_GRID),
                                 LV_PART_MAIN);
     const bool importing = snapshot.power.grid.known && snapshot.power.grid.value > 0.0f;
     set_leg(LEG_GRID, snapshot.power.grid, importing ? FLOW_INWARD : FLOW_OUTWARD,
