@@ -181,6 +181,7 @@ void push_ha_sensors() {
   for (size_t i = 0; i < HA_ENTITY_COUNT; ++i) {
     snprintf(sensors.entity[i], HA_ENTITY_ID_MAX, "%s", s.ha_entities[i].c_str());
   }
+  sensors.ev_kind = s.ha_ev_kind;
   settings_sheet_set_ha_sensors(sensors);
 }
 
@@ -571,6 +572,15 @@ SheetActions actions() {
                                     s.ha_solar_forecast_source)) {
       Serial.printf("[settings] home assistant %s: %s\n", HA_ENTITIES[role].label,
                     entity_id[0] != '\0' ? entity_id : "(not read)");
+      poller_wake();
+    }
+    push_ha_sensors();
+  };
+  a.set_ha_ev_kind = [](HaEvKind kind) {
+    // Read at the next poll: home_assistant_api.cpp looks it up each fetch.
+    if (settings_set_ha_ev_kind(kind)) {
+      Serial.printf("[settings] home assistant EV charger: %s\n",
+                    kind == HaEvKind::Ac ? "AC" : kind == HaEvKind::Dc ? "DC" : "auto");
       poller_wake();
     }
     push_ha_sensors();

@@ -171,6 +171,9 @@ enum class SheetEntry : uint8_t {
 // home_assistant.h. Empty: that role is not read.
 struct SheetHaSensors {
   char entity[HA_ENTITY_COUNT][HA_ENTITY_ID_MAX] = {};
+  // Whether the EV sensor is an AC or a DC charger: only an AC one comes off
+  // house load (power_balance.h).
+  HaEvKind ev_kind = HaEvKind::Auto;
 };
 
 enum class SheetHaListState : uint8_t {
@@ -268,6 +271,7 @@ struct SheetActions {
   void (*load_ha_list)() = nullptr;
   // One role's sensor, by HA_ENTITIES index; an empty entity_id stops reading it.
   void (*set_ha_sensor)(int role, const char* entity_id) = nullptr;
+  void (*set_ha_ev_kind)(HaEvKind kind) = nullptr;
   // The panel's name on the network. False, with a reason, if nothing usable is
   // left once it is cleaned up for DNS.
   bool (*set_device_name)(const char* name, char* error, size_t error_size) = nullptr;

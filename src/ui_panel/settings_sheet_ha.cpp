@@ -2,6 +2,9 @@
 // picked from the list Home Assistant itself gives (src/ha_catalog.h) rather than
 // typed as entity IDs.
 //
+// The role list has one row that is not a sensor: under EV power, whether that
+// sensor is an AC or a DC charger. A tap steps it through Auto, AC and DC.
+//
 // Both lists are an lv_table, one object holding every row as text, not a widget
 // per row: Home Assistant can offer a few hundred sensors, and an object each
 // would take a large bite of the LVGL pool for a list that is open for seconds.
@@ -18,6 +21,8 @@ namespace {
 
 constexpr lv_coord_t MODAL_W = 800;
 constexpr lv_coord_t LIST_H = 330;
+// The role list gives up some height to the note under it.
+constexpr lv_coord_t ROLES_H = 280;
 // The picker's columns: a sensor's name and ID, then its value. The role list's:
 // a short role name, then the sensor chosen for it, which is the longer one.
 constexpr lv_coord_t PICKER_NAME_W = 520;
@@ -108,22 +113,52 @@ lv_obj_t* buttons_row(lv_obj_t* parent) {
   return buttons;
 }
 
+// The EV charger row sits straight under EV power; roles after it move down one.
+constexpr int EV_ROLE = static_cast<int>(HaEntity::EvPower);
+constexpr int EV_KIND_ROW = EV_ROLE + 1;
+constexpr int ROLE_ROWS = static_cast<int>(HA_ENTITY_COUNT) + 1;
+
+int row_of_role(int role) {
+  return role < EV_KIND_ROW ? role : role + 1;
+}
+
+// -1 for the EV charger row.
+int role_of_row(int row) {
+  return row < EV_KIND_ROW ? row : row == EV_KIND_ROW ? -1 : row - 1;
+}
+
+const char* ev_kind_text() {
+  const bool dc = ha_ev_is_dc(s_sensors.ev_kind, s_sensors.entity[EV_ROLE]);
+  switch (s_sensors.ev_kind) {
+    case HaEvKind::Ac:
+      return "AC charger";
+    case HaEvKind::Dc:
+      return "DC charger";
+    case HaEvKind::Auto:
+    default:
+      return dc ? "Auto, reads as DC" : "Auto, reads as AC";
+  }
+}
+
 void refresh_roles() {
   if (s_roles_table == nullptr) {
     return;
   }
   status_text(s_roles_status);
-  lv_table_set_row_cnt(s_roles_table, HA_ENTITY_COUNT);
+  lv_table_set_row_cnt(s_roles_table, ROLE_ROWS);
   for (size_t i = 0; i < HA_ENTITY_COUNT; ++i) {
-    lv_table_set_cell_value(s_roles_table, i, 0, HA_ENTITIES[i].label);
+    const int row = row_of_role(static_cast<int>(i));
+    lv_table_set_cell_value(s_roles_table, row, 0, HA_ENTITIES[i].label);
     const char* chosen = s_sensors.entity[i];
     const HaCandidate* candidate = find(chosen);
-    lv_table_set_cell_value(s_roles_table, i, 1,
+    lv_table_set_cell_value(s_roles_table, row, 1,
                             chosen[0] == '\0'        ? "Not read"
                             : candidate != nullptr && candidate->name[0] != '\0'
                                 ? candidate->name
                                 : chosen);
   }
+  lv_table_set_cell_value(s_roles_table, EV_KIND_ROW, 0, "EV charger");
+  lv_table_set_cell_value(s_roles_table, EV_KIND_ROW, 1, ev_kind_text());
 }
 
 int by_name(const void* a, const void* b) {
@@ -183,17 +218,34 @@ void build_roles_modal(lv_obj_t* root) {
   s_roles_status = hint(box, "");
   s_roles_table = lv_table_create(box);
   style_table(s_roles_table, ROLE_NAME_W, ROLE_VALUE_W);
+  lv_obj_set_height(s_roles_table, ROLES_H);
   lv_obj_add_event_cb(
       s_roles_table,
       [](lv_event_t*) {
         uint16_t row = 0;
         uint16_t column = 0;
         lv_table_get_selected_cell(s_roles_table, &row, &column);
-        if (row < HA_ENTITY_COUNT) {
-          ha_open_picker(row);
+        if (row >= ROLE_ROWS) {
+          return;
         }
+        const int role = role_of_row(row);
+        if (role >= 0) {
+          ha_open_picker(role);
+          return;
+        }
+        // Auto, AC, DC, and round again.
+        s_sensors.ev_kind = s_sensors.ev_kind == HaEvKind::Auto ? HaEvKind::Ac
+                            : s_sensors.ev_kind == HaEvKind::Ac ? HaEvKind::Dc
+                                                                : HaEvKind::Auto;
+        if (sheet_actions().set_ha_ev_kind != nullptr) {
+          sheet_actions().set_ha_ev_kind(s_sensors.ev_kind);
+        }
+        refresh_roles();
       },
       LV_EVENT_VALUE_CHANGED, nullptr);
+  hint(box,
+       "With no home sensor, house load is grid plus plant power, less an AC charger. "
+       "A home sensor is used as it is, and may count the system's own losses as house.");
   lv_obj_t* buttons = buttons_row(box);
   lv_obj_t* reload = button(buttons, "Reload list", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
   lv_obj_add_event_cb(

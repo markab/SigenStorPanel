@@ -849,6 +849,8 @@ void seed_sheet() {
   // A Home Assistant set up most of the way: some roles chosen, the rest not.
   snprintf(s_sheet_ha_sensors.entity[0], HA_ENTITY_ID_MAX, "sensor.sigen_plant_pv_power");
   snprintf(s_sheet_ha_sensors.entity[1], HA_ENTITY_ID_MAX, "sensor.sigen_plant_grid_active_power");
+  snprintf(s_sheet_ha_sensors.entity[static_cast<int>(HaEntity::EvPower)], HA_ENTITY_ID_MAX,
+           "sensor.sigen_inverter_dc_charger_output_power");
   snprintf(s_sheet_ha_sensors.entity[7], HA_ENTITY_ID_MAX,
            "sensor.sigen_plant_battery_state_of_charge");
   settings_sheet_set_ha_sensors(s_sheet_ha_sensors);
@@ -1085,6 +1087,12 @@ SheetActions sim_sheet_actions() {
     printf("[sim] home assistant %s: %s\n", HA_ENTITIES[role].label,
            entity_id[0] != '\0' ? entity_id : "(not read)");
     snprintf(s_sheet_ha_sensors.entity[role], HA_ENTITY_ID_MAX, "%s", entity_id);
+    settings_sheet_set_ha_sensors(s_sheet_ha_sensors);
+  };
+  actions.set_ha_ev_kind = [](HaEvKind kind) {
+    printf("[sim] home assistant EV charger: %s\n",
+           kind == HaEvKind::Ac ? "AC" : kind == HaEvKind::Dc ? "DC" : "auto");
+    s_sheet_ha_sensors.ev_kind = kind;
     settings_sheet_set_ha_sensors(s_sheet_ha_sensors);
   };
   // As settings_clean_hostname() does it on the device, roughly.
@@ -1597,6 +1605,12 @@ int run_sheet_shots(const std::string& directory) {
   settings_sheet_show_ha_sensors();
   run_frames(1000);
   failures += save_shot(directory, "sheet_5g_ha_sensors") ? 0 : 1;
+  // The EV charger row, under EV power, steps Auto -> AC -> DC -> Auto.
+  drag(300, 390, 300, 390);
+  check(s_sheet_ha_sensors.ev_kind == HaEvKind::Ac, "tapping EV charger steps Auto to AC");
+  drag(300, 390, 300, 390);
+  drag(300, 390, 300, 390);
+  check(s_sheet_ha_sensors.ev_kind == HaEvKind::Auto, "and through DC back to Auto");
   settings_sheet_show_ha_picker(static_cast<int>(HaEntity::HomePower));
   run_frames(50);
   failures += save_shot(directory, "sheet_5h_ha_picker") ? 0 : 1;
