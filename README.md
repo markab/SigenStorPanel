@@ -84,7 +84,7 @@ untouched.
 | | |
 |:--:|:--:|
 | <img src="docs/img/power.png" width="420" alt="Power flow"> | <img src="docs/img/battery.png" width="420" alt="Battery"> |
-| **Power**: what is happening right now. Solar at the top, battery and home to the right, grid and EV to the left, all around the plant in the middle, which shows its own power and, below it in pink, what the system is losing in conversion and standby. Dots run along each leg in the direction the power is going: slowly near zero, faster as it rises towards 20 kW. The bar around the edge is your battery's state of charge.<br><br>*Works on all three sources when the values are available.* | **Battery**: charge level, kWh stored, and what it is doing now, over the day's charge curve. Health and temperature on the right.<br><br>*Works on all three sources. On Modbus, temperature needs an inverter added under Devices; on Home Assistant, each figure needs its sensor chosen.* |
+| **Power**: what is happening right now. Solar at the top, battery and home to the right, grid and EV to the left, all around the plant in the middle, which shows its own power and, below it in pink, what the system as a whole is losing in conversion and standby. When the plant is off grid, the grid leg reads **Off** in amber. Dots run along each leg in the direction the power is going: slowly near zero, faster as it rises towards 20 kW. The bar around the edge is your battery's state of charge.<br><br>*Works on all three sources when the values are available.* | **Battery**: charge level, kWh stored, and what it is doing now, over the day's charge curve. Health and temperature on the right.<br><br>*Works on all three sources. On Modbus, temperature needs an inverter added under Devices; on Home Assistant, each figure needs its sensor chosen.* |
 | <img src="docs/img/solar.png" width="420" alt="Solar"> | <img src="docs/img/load.png" width="420" alt="Home use"> |
 | **Solar**: generated so far today and live output, over the day's curve with the forecast behind it. The forecast total and what is still to come are on the right. The bar around the edge is progress against the day's forecast.<br><br>*Works on all three sources.* | **Home use**: everything used today, with what is being drawn now and how self-sufficient you have been.<br><br>*Partial on Modbus and Home Assistant.* The total, live figure and locally recorded curve work. The breakdown by source needs a **SigenStorDisplay Server**. |
 | <img src="docs/img/grid.png" width="420" alt="Grid"> | <img src="docs/img/flows.png" width="420" alt="Energy flows"> |
@@ -183,7 +183,8 @@ takes effect after a restart; the panel offers one.
 1. Choose **Modbus**.
 2. Tap **Set** and enter the IP address of your inverter or gateway.
 3. Optionally, tap **Edit** by Devices. Add your inverter for battery temperature, grid
-   frequency and voltage, and the daily totals. Add a charger, if you have one, for EV
+   frequency and voltage, the daily totals, and its PV strings, which the loss under
+   PLANT is measured against. Add a charger, if you have one, for EV
    power. Use the IDs the Sigen app lists. The plant itself is `247` unless you have
    changed it.
 
@@ -238,13 +239,21 @@ access at once.
 **House load and losses.** With no home/load sensor chosen, the panel works house load
 out on the AC side, as SigenStorDisplay does: `home = max(0, grid + plant − AC charger)`.
 That leaves the system's own losses (conversion, standby, battery heating) out of the
-house figure and shows them under PLANT on the Power screen instead:
-`losses = PV − battery − plant − DC charger`. The plant's power is negative while it takes
-AC in. Without a plant sensor, house load falls back to `PV − battery + grid − EV`, which
+house figure and shows them under PLANT on the Power screen instead, as the system's total
+loss: `losses = strings − battery − plant − DC charger`, where *strings* is voltage ×
+current summed over the PV strings. Choose the **PV1–PV4 voltage and current** sensors if
+you have them (the Sigen integration's are `sensor.sigen_inverter_pv1_voltage` and so on).
+Without them the panel uses PV power instead, which is already net of nearly every loss
+while the sun is up, so the loss shown misses most of what happens in daylight. A string
+counts only when both its sensors are chosen, and if one is unavailable the panel falls
+back rather than show a total short by a string. The plant's power is negative while it
+takes AC in. Without a plant sensor, house load falls back to `PV − battery + grid − EV`, which
 counts the losses as house, and no loss is shown. A home/load sensor you choose is used as
 it is; Sigen's own consumed-power sensor may count the losses as house, so leave it unread
 to have the panel do the AC-side sum. Modbus works the same way from the plant's
-registers, with the AC and DC chargers read apart.
+registers, with the AC and DC chargers read apart and the strings read from each inverter
+added under Devices. The server source shows the server's own figure, which is the total
+from SigenStorDisplay 0.47.6.
 
 The panel sends one [`POST /api/template`](https://developers.home-assistant.io/docs/api/rest/#post-apitemplate)
 per reading. Home Assistant answers with only the chosen sensors and their units, so the
