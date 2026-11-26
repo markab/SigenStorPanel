@@ -153,6 +153,15 @@ void test_ha_catalog() {
   check(ha_catalog_suits(HaValueKind::Boolean, list[4]) &&
             !ha_catalog_suits(HaValueKind::Boolean, list[0]),
         "catalog: only a unitless sensor suits an on/off role");
+  HaCandidate volts;
+  snprintf(volts.unit, sizeof(volts.unit), "V");
+  HaCandidate milliamps;
+  snprintf(milliamps.unit, sizeof(milliamps.unit), "mA");
+  check(ha_catalog_suits(HaValueKind::Voltage, volts) &&
+            ha_catalog_suits(HaValueKind::Current, milliamps) &&
+            !ha_catalog_suits(HaValueKind::Current, volts) &&
+            !ha_catalog_suits(HaValueKind::Power, volts),
+        "catalog: V and mV suit a string voltage, A and mA a string current");
   check(ha_catalog_parse(text, strlen(text), list, 2) == 2, "catalog: stops at the limit");
 }
 

@@ -244,8 +244,8 @@ void build_roles_modal(lv_obj_t* root) {
       },
       LV_EVENT_VALUE_CHANGED, nullptr);
   hint(box,
-       "With no home sensor, house load is grid plus plant power, less an AC charger. "
-       "A home sensor is used as it is, and may count the system's own losses as house.");
+       "Loss under PLANT is the system's total loss: without PV string sensors it misses "
+       "most daytime losses. A home sensor is used as it is.");
   lv_obj_t* buttons = buttons_row(box);
   lv_obj_t* reload = button(buttons, "Reload list", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
   lv_obj_add_event_cb(

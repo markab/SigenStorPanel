@@ -4,14 +4,18 @@
 
 // Sensors in a unit the panel converts, and on/off sensors for the off-grid role:
 // every binary_sensor, plus unitless sensors with "grid" in their name, which is
-// how the Sigen integration reports its grid connection status. The counter stops
-// it at HA_CATALOG_MAX. Tabs and newlines in names and states are flattened so
+// how the Sigen integration reports its grid connection status. Voltages and
+// currents only with "pv" in their ID, for the PV string roles (the Sigen
+// integration's are sensor.sigen_inverter_pv1_voltage and so on): a house has
+// many other voltages and currents, and they would crowd the power sensors out
+// of the list before the counter stops it at HA_CATALOG_MAX. Tabs and newlines in names and states are flattened so
 // they cannot break a line.
 const char HA_CATALOG_TEMPLATE[] =
     "{%- set ns = namespace(n=0) -%}"
     "{%- for s in states.sensor | list + states.binary_sensor | list -%}"
     "{%- set u = s.attributes.unit_of_measurement | default('', true) | string -%}"
     "{%- if ns.n < 300 and (u in ['W','kW','Wh','kWh','%','\xC2\xB0" "C']"
+    " or (u in ['V','mV','A','mA'] and 'pv' in s.object_id)"
     " or (u == '' and (s.domain == 'binary_sensor' or 'grid' in s.object_id))) -%}"
     "{%- set ns.n = ns.n + 1 -%}"
     "{{ s.entity_id }}\t{{ u }}\t"
@@ -87,6 +91,10 @@ bool ha_catalog_suits(HaValueKind kind, const HaCandidate& candidate) {
       return unit == HaUnit::Celsius;
     case HaValueKind::Boolean:
       return candidate.unit[0] == '\0';
+    case HaValueKind::Voltage:
+      return unit == HaUnit::Volts || unit == HaUnit::Millivolts;
+    case HaValueKind::Current:
+      return unit == HaUnit::Amps || unit == HaUnit::Milliamps;
   }
   return false;
 }
