@@ -183,8 +183,8 @@ takes effect after a restart; the panel offers one.
 1. Choose **Modbus**.
 2. Tap **Set** and enter the IP address of your inverter or gateway.
 3. Optionally, tap **Edit** by Devices. Add your inverter for battery temperature, grid
-   frequency and voltage, the daily totals, and its PV strings, which the loss under
-   PLANT is measured against. Add a charger, if you have one, for EV
+   frequency and voltage, the daily totals, and its PV strings, which Solar and the loss
+   under PLANT are measured from. Add a charger, if you have one, for EV
    power. Use the IDs the Sigen app lists. The plant itself is `247` unless you have
    changed it.
 
@@ -240,11 +240,14 @@ access at once.
 out on the AC side, as SigenStorDisplay does: `home = max(0, grid + plant − AC charger)`.
 That leaves the system's own losses (conversion, standby, battery heating) out of the
 house figure and shows them under PLANT on the Power screen instead, as the system's total
-loss: `losses = strings − battery − plant − DC charger`, where *strings* is voltage ×
-current summed over the PV strings. Choose the **PV1–PV4 voltage and current** sensors if
-you have them (the Sigen integration's are `sensor.sigen_inverter_pv1_voltage` and so on).
-Without them the panel uses PV power instead, which is already net of nearly every loss
-while the sun is up, so the loss shown misses most of what happens in daylight. A string
+loss: `losses = solar − battery − plant − DC charger`. *Solar* is what the panels
+delivered: voltage × current summed over the PV strings, or PV power if that is higher.
+It is also what the Solar node shows, so Solar plus battery out equals plant plus loss on
+screen. Choose the **PV1–PV4 voltage and current** sensors if you have them (the Sigen
+integration's are `sensor.sigen_inverter_pv1_voltage` and so on). Without them the panel
+uses PV power alone, which is already net of nearly every loss while the sun is up, and
+reads nothing at all in weak sun, so the loss shown misses most of what happens in
+daylight. A string
 counts only when both its sensors are chosen, and if one is unavailable the panel falls
 back rather than show a total short by a string. The plant's power is negative while it
 takes AC in. Without a plant sensor, house load falls back to `PV − battery + grid − EV`, which
@@ -253,7 +256,7 @@ it is; Sigen's own consumed-power sensor may count the losses as house, so leave
 to have the panel do the AC-side sum. Modbus works the same way from the plant's
 registers, with the AC and DC chargers read apart and the strings read from each inverter
 added under Devices. The server source shows the server's own figure, which is the total
-from SigenStorDisplay 0.47.6.
+from SigenStorDisplay 0.47.6, and whose Solar is on the same basis from 0.47.7.
 
 The panel sends one [`POST /api/template`](https://developers.home-assistant.io/docs/api/rest/#post-apitemplate)
 per reading. Home Assistant answers with only the chosen sensors and their units, so the
