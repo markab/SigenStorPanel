@@ -2,7 +2,7 @@
 // 1024x600. Server source only. Started as the 2.41" board's 600x450 layout.
 //
 // The round screen's Sankey, re-laid for a wide rectangle: three source nodes
-// down the left, four sink nodes down the right, one ribbon per flow whose
+// down the left, four sink nodes (five with LOSSES) down the right, one ribbon per flow whose
 // thickness is the energy that took that path. A colour is always a node, and a
 // ribbon takes the colour of the node it leaves. Self-sufficiency used to sit at
 // the top of this screen as a ring and a hero figure; it now lives in the load
@@ -27,6 +27,15 @@ namespace {
 constexpr lv_coord_t LEFT_ROW_Y[3] = {-138, -8, 122};
 constexpr lv_coord_t RIGHT_ROW_Y[4] = {-138, -51, 36, 122};
 
+// A server from 0.47.3 adds a fifth sink, LOSSES. The panel has height to spare,
+// so the five rows spread further rather than shrinking their labels as the
+// 2.41 does: 76 px apart, with the left column stretched to share their top and
+// bottom. Chosen by whether the server sends the *_losses flows at all, never by
+// their values, so rows do not jump when a loss rounds to nothing; an older
+// server keeps the four rows exactly as they were. See src/ui/screen_flows.cpp.
+constexpr lv_coord_t LEFT_ROW_Y_WITH_LOSSES[3] = {-152, 0, 152};
+constexpr lv_coord_t RIGHT_ROW_Y_WITH_LOSSES[5] = {-152, -76, 0, 76, 152};
+
 // Out towards the sides, with the labels outboard of the nodes, so the ribbons
 // get most of the width to cross in.
 constexpr lv_coord_t NODE_X = 340;
@@ -37,6 +46,7 @@ constexpr lv_coord_t LABEL_X = 412;
 // The tallest a node bar may be drawn, set by the tighter (sink) column so
 // neighbours never touch.
 constexpr lv_coord_t MAX_NODE_PX = 66;
+constexpr lv_coord_t MAX_NODE_PX_WITH_LOSSES = 56;  // the same 20 px gap at 76 px rows
 constexpr lv_coord_t MIN_FLOW_PX = 2;
 // Edge pixels are shaded by how much of them the ribbon covers, sampled this many
 // times across the pixel's width so the steep middle of a curve, where the edge
@@ -45,24 +55,35 @@ constexpr int EDGE_SAMPLES = 4;
 constexpr lv_opa_t RIBBON_OPA = LV_OPA_60;
 
 enum Source { SRC_SOLAR = 0, SRC_BATTERY, SRC_GRID, SRC_COUNT };
-enum Sink { SNK_HOME = 0, SNK_EV, SNK_BATTERY, SNK_GRID, SNK_COUNT };
+enum Sink { SNK_HOME = 0, SNK_EV, SNK_BATTERY, SNK_GRID, SNK_LOSSES, SNK_COUNT };
 
 struct FlowSpec {
   Source from;
   Sink to;
 };
+// Losses last in each source's group, as on the Puck.
 constexpr FlowSpec FLOWS[] = {
-    {SRC_SOLAR, SNK_HOME},   {SRC_SOLAR, SNK_EV},   {SRC_SOLAR, SNK_BATTERY},
-    {SRC_SOLAR, SNK_GRID},   {SRC_BATTERY, SNK_HOME}, {SRC_BATTERY, SNK_EV},
-    {SRC_BATTERY, SNK_GRID}, {SRC_GRID, SNK_HOME},  {SRC_GRID, SNK_EV},
-    {SRC_GRID, SNK_BATTERY},
+    {SRC_SOLAR, SNK_HOME},   {SRC_SOLAR, SNK_EV},     {SRC_SOLAR, SNK_BATTERY},
+    {SRC_SOLAR, SNK_GRID},   {SRC_SOLAR, SNK_LOSSES}, {SRC_BATTERY, SNK_HOME},
+    {SRC_BATTERY, SNK_EV},   {SRC_BATTERY, SNK_GRID}, {SRC_BATTERY, SNK_LOSSES},
+    {SRC_GRID, SNK_HOME},    {SRC_GRID, SNK_EV},      {SRC_GRID, SNK_BATTERY},
+    {SRC_GRID, SNK_LOSSES},
 };
 constexpr size_t FLOW_COUNT = sizeof(FLOWS) / sizeof(FLOWS[0]);
 
 constexpr uint32_t SOURCE_COLOUR[SRC_COUNT] = {PUCK_COLOUR_SOLAR, PUCK_COLOUR_BATTERY,
                                                PUCK_COLOUR_GRID};
 constexpr uint32_t SINK_COLOUR[SNK_COUNT] = {PUCK_COLOUR_HOME, PUCK_COLOUR_EV,
-                                             PUCK_COLOUR_BATTERY, PUCK_COLOUR_GRID};
+                                             PUCK_COLOUR_BATTERY, PUCK_COLOUR_GRID,
+                                             PUCK_COLOUR_LOSSES};
+
+// LOSSES has a row only in the five-sink arrangement and is hidden in the other.
+lv_coord_t source_row_y(int source, bool with_losses) {
+  return with_losses ? LEFT_ROW_Y_WITH_LOSSES[source] : LEFT_ROW_Y[source];
+}
+lv_coord_t sink_row_y(int sink, bool with_losses) {
+  return with_losses || sink == SNK_LOSSES ? RIGHT_ROW_Y_WITH_LOSSES[sink] : RIGHT_ROW_Y[sink];
+}
 
 struct Geometry {
   bool valid = false;
@@ -114,6 +135,14 @@ void build_node(NodeUi* node, const char* name, uint32_t colour, lv_coord_t x, l
   lv_label_set_text(node->name, name);
   node->value = make_label(s_root, PUCK_FONT_LARGE, PUCK_COLOUR_TEXT, label_x, y + 19);
   lv_label_set_text(node->value, "--");
+}
+
+// Puts a node's bar and labels on its row.
+void place_node(const NodeUi& node, lv_coord_t x, lv_coord_t y) {
+  const lv_coord_t label_x = x < 0 ? -LABEL_X : LABEL_X;
+  lv_obj_align(node.bar, LV_ALIGN_CENTER, x, y);
+  lv_obj_align(node.name, LV_ALIGN_CENTER, label_x, y - 19);
+  lv_obj_align(node.value, LV_ALIGN_CENTER, label_x, y + 19);
 }
 
 void show_node(const NodeUi& node, bool visible) {
@@ -269,12 +298,12 @@ lv_obj_t* screen_flows_create(lv_obj_t* parent) {
   lv_label_set_text(title, "FLOWS  \xC2\xB7  kWh");
 
   static const char* const SOURCE_NAME[SRC_COUNT] = {"SOLAR", "BATT", "GRID"};
-  static const char* const SINK_NAME[SNK_COUNT] = {"HOME", "EV", "BATT", "GRID"};
+  static const char* const SINK_NAME[SNK_COUNT] = {"HOME", "EV", "BATT", "GRID", "LOSSES"};
   for (int i = 0; i < SRC_COUNT; ++i) {
-    build_node(&s_source[i], SOURCE_NAME[i], SOURCE_COLOUR[i], -NODE_X, LEFT_ROW_Y[i]);
+    build_node(&s_source[i], SOURCE_NAME[i], SOURCE_COLOUR[i], -NODE_X, source_row_y(i, false));
   }
   for (int i = 0; i < SNK_COUNT; ++i) {
-    build_node(&s_sink[i], SINK_NAME[i], SINK_COLOUR[i], NODE_X, RIGHT_ROW_Y[i]);
+    build_node(&s_sink[i], SINK_NAME[i], SINK_COLOUR[i], NODE_X, sink_row_y(i, false));
   }
 
   return s_root;
@@ -296,12 +325,16 @@ void screen_flows_update(const Snapshot& snapshot) {
     return home > 0.0f ? home : 0.0f;
   };
 
+  // A 0.47.3 server's *_load no longer carries the losses; they come apart.
+  const bool with_losses =
+      have && (f.solar_losses.known || f.grid_losses.known || f.batt_losses.known);
+
   const float amount[FLOW_COUNT] = {
-      to_home(f.solar_load, f.solar_ev), amount_of(f.solar_ev),
-      amount_of(f.solar_batt),           amount_of(f.solar_grid),
-      to_home(f.batt_load, f.batt_ev),   amount_of(f.batt_ev),
-      amount_of(f.batt_grid),            to_home(f.grid_load, f.grid_ev),
-      amount_of(f.grid_ev),              amount_of(f.grid_batt),
+      to_home(f.solar_load, f.solar_ev), amount_of(f.solar_ev),     amount_of(f.solar_batt),
+      amount_of(f.solar_grid),           amount_of(f.solar_losses), to_home(f.batt_load, f.batt_ev),
+      amount_of(f.batt_ev),              amount_of(f.batt_grid),    amount_of(f.batt_losses),
+      to_home(f.grid_load, f.grid_ev),   amount_of(f.grid_ev),      amount_of(f.grid_batt),
+      amount_of(f.grid_losses),
   };
 
   float source_total[SRC_COUNT] = {};
@@ -334,23 +367,26 @@ void screen_flows_update(const Snapshot& snapshot) {
     return;
   }
 
-  const float scale = static_cast<float>(MAX_NODE_PX) / largest;
+  const float scale =
+      static_cast<float>(with_losses ? MAX_NODE_PX_WITH_LOSSES : MAX_NODE_PX) / largest;
 
   lv_coord_t source_top[SRC_COUNT];
   lv_coord_t sink_top[SNK_COUNT];
   for (int i = 0; i < SRC_COUNT; ++i) {
     const lv_coord_t height = static_cast<lv_coord_t>(lroundf(source_total[i] * scale));
     lv_obj_set_height(s_source[i].bar, height > 0 ? height : 1);
-    lv_obj_align(s_source[i].bar, LV_ALIGN_CENTER, -NODE_X, LEFT_ROW_Y[i]);
-    source_top[i] = PUCK_LCD_HEIGHT / 2 + LEFT_ROW_Y[i] - height / 2;
+    const lv_coord_t row = source_row_y(i, with_losses);
+    place_node(s_source[i], -NODE_X, row);
+    source_top[i] = PUCK_LCD_HEIGHT / 2 + row - height / 2;
     show_node(s_source[i], source_total[i] > 0.0f);
     set_node_value(s_source[i], source_total[i]);
   }
   for (int i = 0; i < SNK_COUNT; ++i) {
     const lv_coord_t height = static_cast<lv_coord_t>(lroundf(sink_total[i] * scale));
     lv_obj_set_height(s_sink[i].bar, height > 0 ? height : 1);
-    lv_obj_align(s_sink[i].bar, LV_ALIGN_CENTER, NODE_X, RIGHT_ROW_Y[i]);
-    sink_top[i] = PUCK_LCD_HEIGHT / 2 + RIGHT_ROW_Y[i] - height / 2;
+    const lv_coord_t row = sink_row_y(i, with_losses);
+    place_node(s_sink[i], NODE_X, row);
+    sink_top[i] = PUCK_LCD_HEIGHT / 2 + row - height / 2;
     show_node(s_sink[i], sink_total[i] > 0.0f);
     set_node_value(s_sink[i], sink_total[i]);
   }
