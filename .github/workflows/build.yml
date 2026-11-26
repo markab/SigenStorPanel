@@ -175,5 +175,11 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web/installer
+      # deploy-pages lists this run's artifacts straight after the upload. On
+      # 2026-11-26 the new one took longer than that to appear in the list, and
+      # the deploy failed with "No artifacts named github-pages". A re-run does
+      # not help: it uploads a second copy and then finds two.
+      - name: Let the artifact list catch up
+        run: sleep 20
       - id: deploy
         uses: actions/deploy-pages@v4
