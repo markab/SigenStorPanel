@@ -1,7 +1,7 @@
-// Screen, panel: grid events. The live event, else the next booked one, else the
-// latest finished one, in a card across the top; the events before it in rows
-// underneath, newest first, as many as fit. A new event pushes the oldest row off
-// the bottom.
+// Screen, panel: grid events. Each live event in a card across the top (two can
+// overlap: an Axle export inside a Saving Session), else the next booked one,
+// else the latest finished one; the events before them in rows underneath,
+// newest first, as many as fit. A new event pushes the oldest row off the bottom.
 //
 // The wording comes from events.h's helpers, so the panel describes an event in
 // the same words as both Puck boards; this file only lays them out. The round and
@@ -21,10 +21,18 @@ namespace {
 constexpr lv_coord_t PAD_X = 56;
 constexpr lv_coord_t CARD_Y = 58;
 constexpr lv_coord_t CARD_H = 170;
+// Two cards are a little shorter, so two rows still fit under them.
+constexpr lv_coord_t CARD_H_TWO = 150;
+constexpr lv_coord_t CARD_GAP = 14;
 constexpr lv_coord_t CARD_W = PUCK_LCD_WIDTH - 2 * PAD_X;
-constexpr lv_coord_t ROWS_Y = 246;
-constexpr lv_coord_t ROW_H = 46;  // six clear of the page dots
+// Cards for at most two live events at once; a third, which has never been
+// seen, goes at the top of the rows.
+constexpr int CARDS = 2;
+constexpr lv_coord_t ROWS_GAP = 18;  // from the last card to the first row
+constexpr lv_coord_t ROW_H = 46;
 constexpr int ROWS = 6;
+// The rows stop here, clear of the page dots: six under one card.
+constexpr lv_coord_t ROWS_BOTTOM = CARD_Y + CARD_H + ROWS_GAP + ROWS * ROW_H;
 // The card's figures: the kind's own (events_figures, at most two) and the
 // battery's run.
 constexpr int CARD_FIGURES = 3;
@@ -33,6 +41,15 @@ struct Figure {
   lv_obj_t* box;
   lv_obj_t* caption;
   lv_obj_t* value;
+};
+
+struct Card {
+  lv_obj_t* box;
+  lv_obj_t* pill;
+  lv_obj_t* pill_text;
+  lv_obj_t* when;
+  lv_obj_t* status;
+  Figure figures[CARD_FIGURES];
 };
 
 struct Row {
@@ -45,12 +62,7 @@ struct Row {
 
 lv_obj_t* s_root = nullptr;
 lv_obj_t* s_empty = nullptr;
-lv_obj_t* s_card = nullptr;
-lv_obj_t* s_pill = nullptr;
-lv_obj_t* s_pill_text = nullptr;
-lv_obj_t* s_card_when = nullptr;
-lv_obj_t* s_card_status = nullptr;
-Figure s_figures[CARD_FIGURES] = {};
+Card s_cards[CARDS] = {};
 Row s_rows[ROWS] = {};
 
 uint32_t kind_colour(EventKind kind) {
@@ -107,33 +119,33 @@ lv_obj_t* label(lv_obj_t* parent, const lv_font_t* font, uint32_t colour) {
   return obj;
 }
 
-void build_card() {
-  s_card = plain(s_root);
-  lv_obj_set_pos(s_card, PAD_X, CARD_Y);
-  lv_obj_set_size(s_card, CARD_W, CARD_H);
-  lv_obj_set_style_radius(s_card, 18, LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(s_card, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_border_width(s_card, 1, LV_PART_MAIN);
-  lv_obj_set_style_pad_hor(s_card, 28, LV_PART_MAIN);
-  lv_obj_set_style_pad_ver(s_card, 22, LV_PART_MAIN);
+void build_card(Card& card) {
+  card.box = plain(s_root);
+  lv_obj_set_pos(card.box, PAD_X, CARD_Y);
+  lv_obj_set_size(card.box, CARD_W, CARD_H);
+  lv_obj_set_style_radius(card.box, 18, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(card.box, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_border_width(card.box, 1, LV_PART_MAIN);
+  lv_obj_set_style_pad_hor(card.box, 28, LV_PART_MAIN);
+  lv_obj_set_style_pad_ver(card.box, 22, LV_PART_MAIN);
 
-  s_pill = plain(s_card);
-  lv_obj_set_size(s_pill, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_set_style_radius(s_pill, 10, LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(s_pill, LV_OPA_COVER, LV_PART_MAIN);
-  lv_obj_set_style_pad_hor(s_pill, 12, LV_PART_MAIN);
-  lv_obj_set_style_pad_ver(s_pill, 5, LV_PART_MAIN);
-  lv_obj_align(s_pill, LV_ALIGN_TOP_LEFT, 0, 0);
-  s_pill_text = label(s_pill, &puck_font_18, PUCK_COLOUR_BG);
+  card.pill = plain(card.box);
+  lv_obj_set_size(card.pill, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_style_radius(card.pill, 10, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(card.pill, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_set_style_pad_hor(card.pill, 12, LV_PART_MAIN);
+  lv_obj_set_style_pad_ver(card.pill, 5, LV_PART_MAIN);
+  lv_obj_align(card.pill, LV_ALIGN_TOP_LEFT, 0, 0);
+  card.pill_text = label(card.pill, &puck_font_18, PUCK_COLOUR_BG);
 
-  s_card_when = label(s_card, &puck_font_24, PUCK_COLOUR_TEXT);
-  lv_obj_align_to(s_card_when, s_pill, LV_ALIGN_OUT_RIGHT_MID, 16, 0);
-  s_card_status = label(s_card, &puck_font_20, PUCK_COLOUR_MUTED);
-  lv_obj_align(s_card_status, LV_ALIGN_TOP_RIGHT, 0, 4);
+  card.when = label(card.box, &puck_font_24, PUCK_COLOUR_TEXT);
+  lv_obj_align_to(card.when, card.pill, LV_ALIGN_OUT_RIGHT_MID, 16, 0);
+  card.status = label(card.box, &puck_font_20, PUCK_COLOUR_MUTED);
+  lv_obj_align(card.status, LV_ALIGN_TOP_RIGHT, 0, 4);
 
   for (int i = 0; i < CARD_FIGURES; ++i) {
-    Figure& figure = s_figures[i];
-    figure.box = plain(s_card);
+    Figure& figure = card.figures[i];
+    figure.box = plain(card.box);
     lv_obj_set_size(figure.box, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(figure.box, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(figure.box, 2, LV_PART_MAIN);
@@ -147,7 +159,7 @@ void build_rows() {
   for (int i = 0; i < ROWS; ++i) {
     Row& row = s_rows[i];
     row.box = plain(s_root);
-    lv_obj_set_pos(row.box, PAD_X, ROWS_Y + i * ROW_H);
+    lv_obj_set_pos(row.box, PAD_X, CARD_Y + CARD_H + ROWS_GAP + i * ROW_H);
     lv_obj_set_size(row.box, CARD_W, ROW_H);
     lv_obj_set_style_border_side(row.box, LV_BORDER_SIDE_TOP, LV_PART_MAIN);
     lv_obj_set_style_border_width(row.box, 1, LV_PART_MAIN);
@@ -168,24 +180,24 @@ void build_rows() {
   }
 }
 
-void show_card(const GridEvent& event, uint32_t now, int32_t tz_offset_min) {
+void show_card(Card& card, const GridEvent& event, uint32_t now, int32_t tz_offset_min) {
   const uint32_t colour = kind_colour(event.kind);
-  lv_obj_set_style_bg_color(s_card, lv_color_mix(lv_color_hex(colour), lv_color_black(), 36),
+  lv_obj_set_style_bg_color(card.box, lv_color_mix(lv_color_hex(colour), lv_color_black(), 36),
                             LV_PART_MAIN);
-  lv_obj_set_style_border_color(s_card, lv_color_hex(colour), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(s_pill, lv_color_hex(colour), LV_PART_MAIN);
-  set_text(s_pill_text, events_title(event));
+  lv_obj_set_style_border_color(card.box, lv_color_hex(colour), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(card.pill, lv_color_hex(colour), LV_PART_MAIN);
+  set_text(card.pill_text, events_title(event));
 
   char text[48];
   events_format_when(event, now, tz_offset_min, text, sizeof(text));
-  set_text(s_card_when, text);
-  lv_obj_align_to(s_card_when, s_pill, LV_ALIGN_OUT_RIGHT_MID, 16, 0);
+  set_text(card.when, text);
+  lv_obj_align_to(card.when, card.pill, LV_ALIGN_OUT_RIGHT_MID, 16, 0);
 
   events_format_status(event, now, text, sizeof(text));
-  set_text(s_card_status, text);
+  set_text(card.status, text);
   const EventState state = events_state_at(event, now);
   lv_obj_set_style_text_color(
-      s_card_status, lv_color_hex(state == EventState::Live ? PUCK_COLOUR_BATTERY : PUCK_COLOUR_MUTED),
+      card.status, lv_color_hex(state == EventState::Live ? PUCK_COLOUR_BATTERY : PUCK_COLOUR_MUTED),
       LV_PART_MAIN);
 
   EventFigure figures[CARD_FIGURES];
@@ -204,13 +216,14 @@ void show_card(const GridEvent& event, uint32_t now, int32_t tz_offset_min) {
   }
   for (int i = 0; i < CARD_FIGURES; ++i) {
     const bool used = static_cast<size_t>(i) < count;
+    Figure& figure = card.figures[i];
     if (used) {
-      set_text(s_figures[i].caption, figures[i].caption);
-      set_text(s_figures[i].value, figures[i].value);
+      set_text(figure.caption, figures[i].caption);
+      set_text(figure.value, figures[i].value);
     }
-    if (used == lv_obj_has_flag(s_figures[i].box, LV_OBJ_FLAG_HIDDEN)) {
-      used ? lv_obj_clear_flag(s_figures[i].box, LV_OBJ_FLAG_HIDDEN)
-           : lv_obj_add_flag(s_figures[i].box, LV_OBJ_FLAG_HIDDEN);
+    if (used == lv_obj_has_flag(figure.box, LV_OBJ_FLAG_HIDDEN)) {
+      used ? lv_obj_clear_flag(figure.box, LV_OBJ_FLAG_HIDDEN)
+           : lv_obj_add_flag(figure.box, LV_OBJ_FLAG_HIDDEN);
     }
   }
 }
@@ -264,7 +277,9 @@ lv_obj_t* screen_events_create(lv_obj_t* parent) {
   lv_label_set_text(caption, "EVENTS");
   lv_obj_set_pos(caption, PAD_X, 26);
 
-  build_card();
+  for (Card& card : s_cards) {
+    build_card(card);
+  }
   build_rows();
 
   s_empty = label(s_root, &puck_font_28, PUCK_COLOUR_MUTED);
@@ -280,9 +295,28 @@ void screen_events_update(const EventList& events, uint32_t now, int32_t tz_offs
   if (s_root == nullptr) {
     return;
   }
-  const GridEvent* featured = events.valid ? events_featured(events) : nullptr;
-  if (featured == nullptr) {
-    lv_obj_add_flag(s_card, LV_OBJ_FLAG_HIDDEN);
+  // The cards: every live event the server sent (two can overlap), else the one
+  // event a small screen would feature: the next booked, or the latest finished.
+  const GridEvent* carded[EVENTS_MAX_LIVE];
+  int live = 0;
+  if (events.valid) {
+    for (uint8_t i = 0; i < events.live_count && i < EVENTS_MAX_LIVE; ++i) {
+      if (events_renderable(events.live[i])) {
+        carded[live++] = &events.live[i];
+      }
+    }
+  }
+  const GridEvent* featured = nullptr;
+  if (live == 0) {
+    featured = events.valid ? events_featured(events) : nullptr;
+    if (featured != nullptr) {
+      carded[live++] = featured;
+    }
+  }
+  if (live == 0) {
+    for (Card& card : s_cards) {
+      lv_obj_add_flag(card.box, LV_OBJ_FLAG_HIDDEN);
+    }
     for (Row& row : s_rows) {
       lv_obj_add_flag(row.box, LV_OBJ_FLAG_HIDDEN);
     }
@@ -290,20 +324,39 @@ void screen_events_update(const EventList& events, uint32_t now, int32_t tz_offs
     return;
   }
   lv_obj_add_flag(s_empty, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_clear_flag(s_card, LV_OBJ_FLAG_HIDDEN);
-  show_card(*featured, now, tz_offset_min);
 
-  // Everything finished, newest first, but the one already in the card.
-  const GridEvent* listed[EVENTS_MAX_PAST];
+  const int cards = live < CARDS ? live : CARDS;
+  const lv_coord_t card_h = cards > 1 ? CARD_H_TWO : CARD_H;
+  for (int i = 0; i < CARDS; ++i) {
+    Card& card = s_cards[i];
+    if (i < cards) {
+      lv_obj_set_pos(card.box, PAD_X, CARD_Y + i * (card_h + CARD_GAP));
+      lv_obj_set_height(card.box, card_h);
+      lv_obj_clear_flag(card.box, LV_OBJ_FLAG_HIDDEN);
+      show_card(card, *carded[i], now, tz_offset_min);
+    } else {
+      lv_obj_add_flag(card.box, LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+
+  // The rows: a live event there was no card for, then everything finished,
+  // newest first, but the one already in a card.
+  const GridEvent* listed[EVENTS_MAX_LIVE + EVENTS_MAX_PAST];
   int count = 0;
-  for (uint8_t i = 0; i < events.past_count; ++i) {
+  for (int i = cards; i < live; ++i) {
+    listed[count++] = carded[i];
+  }
+  for (uint8_t i = 0; i < events.past_count && i < EVENTS_MAX_PAST; ++i) {
     const GridEvent& event = events.past[i];
     if (&event != featured && events_renderable(event)) {
       listed[count++] = &event;
     }
   }
+  const lv_coord_t rows_y = CARD_Y + cards * card_h + (cards - 1) * CARD_GAP + ROWS_GAP;
+  const int fit = static_cast<int>((ROWS_BOTTOM - rows_y) / ROW_H);
   for (int i = 0; i < ROWS; ++i) {
-    if (i < count) {
+    if (i < count && i < fit) {
+      lv_obj_set_y(s_rows[i].box, rows_y + i * ROW_H);
       show_row(s_rows[i], *listed[i], now, tz_offset_min);
     } else {
       lv_obj_add_flag(s_rows[i].box, LV_OBJ_FLAG_HIDDEN);

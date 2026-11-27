@@ -1753,8 +1753,36 @@ int run_screenshot_pass(const std::string& output_directory) {
       continue;
     }
     ui_show_screen(screen);
+    // A Saving Session that started half an hour before the file's live Axle
+    // export and is still running: both get a card. Then a third live event,
+    // which goes at the top of the rows.
+    EventList overlap = s_events;
+    GridEvent saving = s_events.past[0];
+    saving.state = EventState::Live;
+    saving.start = s_events.current.start - 1800;
+    saving.end = saving.start + 3600;
+    saving.has_end = true;
+    saving.soc_end = MaybeFloat();
+    overlap.current = saving;
+    overlap.live[0] = saving;
+    overlap.live[1] = s_events.current;
+    overlap.live_count = 2;
+    ui_update_events(overlap);
+    lv_refr_now(nullptr);
+    failures += save_shot(output_directory, "events_two_live") ? 0 : 1;
+    GridEvent free_import = s_events.past[4];
+    free_import.state = EventState::Live;
+    free_import.start = saving.start;
+    free_import.end = saving.end;
+    overlap.live[2] = free_import;
+    overlap.live_count = 3;
+    ui_update_events(overlap);
+    lv_refr_now(nullptr);
+    failures += save_shot(output_directory, "events_three_live") ? 0 : 1;
+
     EventList variant = s_events;
     variant.has_current = false;
+    variant.live_count = 0;
     ui_update_events(variant);
     lv_refr_now(nullptr);
     failures += save_shot(output_directory, "events_no_current") ? 0 : 1;
