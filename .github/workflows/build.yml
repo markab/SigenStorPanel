@@ -75,6 +75,19 @@ jobs:
           name: release-artifacts
           path: dist/
 
+      # The ELF this build's images came from, to turn a crash's addresses (the
+      # Device page's Crash details) into functions and lines. Only this one
+      # will do: a local build of the same commit lays the code out differently.
+      # The crash view shows the first nine hex digits of the ELF's SHA-256,
+      # which tools/decode_crash.sh matches against these.
+      - name: Keep the ELF for decoding crashes
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-elf
+          path: .pio/build/panel/firmware.elf
+          retention-days: 90
+
   # A job of its own, so a simulator problem never holds up a firmware release.
   # Worth building on every push all the same: the simulator shares the snapshot
   # model, the parsers and every screen with the firmware, and --selftest runs the

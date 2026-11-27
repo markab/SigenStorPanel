@@ -10,6 +10,7 @@
 #include "kiosk_code.h"
 #include "presence_parse.h"
 #include "sound_events.h"
+#include "ui_panel/settings_sheet_internal.h"
 
 namespace {
 
@@ -380,6 +381,25 @@ void test_enviot_edges() {
   check(strcmp(text, "--") == 0, "unknown");
 }
 
+void test_crash_words() {
+  char text[40];
+  check(strcmp(sheet_kit::crash_cause_text(5, text, sizeof(text)), "load access fault") == 0,
+        "mcause 5 is a load access fault");
+  check(strcmp(sheet_kit::crash_cause_text(7, text, sizeof(text)), "store access fault") == 0,
+        "mcause 7 is a store access fault");
+  check(strcmp(sheet_kit::crash_cause_text(0x80000007u, text, sizeof(text)), "interrupt 7") == 0,
+        "the top bit marks an interrupt");
+  check(strcmp(sheet_kit::crash_cause_text(24, text, sizeof(text)), "exception 24") == 0,
+        "an unlisted cause keeps its number");
+  check(sheet_kit::restart_unexpected(SheetRestart::Crash) &&
+            sheet_kit::restart_unexpected(SheetRestart::TaskWatchdog) &&
+            sheet_kit::restart_unexpected(SheetRestart::PowerDip),
+        "crashes, watchdogs and power dips are unexpected");
+  check(!sheet_kit::restart_unexpected(SheetRestart::Software) &&
+            !sheet_kit::restart_unexpected(SheetRestart::PowerOn),
+        "a restart someone asked for is not");
+}
+
 }  // namespace
 
 int run_panel_selftest() {
@@ -393,6 +413,7 @@ int run_panel_selftest() {
   test_sound_ev();
   test_enviot_live();
   test_enviot_edges();
+  test_crash_words();
   printf("\n%d panel checks, %d failed\n", s_checks, s_failures);
   return s_failures == 0 ? 0 : 1;
 }

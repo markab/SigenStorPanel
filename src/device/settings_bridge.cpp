@@ -5,6 +5,7 @@
 #include <esp_heap_caps.h>
 
 #include "board_config.h"
+#include "crash_report.h"
 #include "data_source.h"
 #include "display.h"
 #include "display_dsi.h"
@@ -620,6 +621,9 @@ void settings_bridge_begin() {
   push_ha_sensors();
   push_wifi();
   push_device();
+  SheetCrash crash;
+  crash_report_read(&crash);
+  settings_sheet_set_crash(crash);
 }
 
 void settings_bridge_loop() {

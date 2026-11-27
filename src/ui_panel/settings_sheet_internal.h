@@ -159,6 +159,20 @@ void ha_close_modals();
 // "12 of 21 chosen", for the Data page.
 const char* ha_sensors_summary(char* out, size_t size);
 
+// settings_sheet_crash.cpp: why the panel last started, and the saved crash.
+void crash_build_modal(lv_obj_t* root);
+void crash_set(const SheetCrash& crash);
+const SheetCrash& crash_get();
+void crash_open();
+bool crash_modal_open();
+void crash_close();
+// "crash", "power on", "task watchdog": for the Device page's Last restart row.
+const char* restart_text(SheetRestart restart);
+// True for a restart nobody asked for.
+bool restart_unexpected(SheetRestart restart);
+// The RISC-V trap cause in words: "load access fault", "interrupt 7".
+const char* crash_cause_text(uint32_t mcause, char* out, size_t size);
+
 // ----------------------------------------------------------------- confirm ---
 
 void disarm();

@@ -137,6 +137,7 @@ enum PerfRow : uint8_t {
   PERF_PSRAM,
   PERF_LVGL,
   PERF_UPTIME,
+  PERF_RESTART,
   PERF_WIFI,
   PERF_LAST_READ,
   PERF_FAILURES,
@@ -144,8 +145,8 @@ enum PerfRow : uint8_t {
 };
 const char* const PERF_NAMES[PERF_COUNT] = {
     "Last redraw",      "Frames last second", "Internal RAM free", "Largest free block",
-    "PSRAM free",       "LVGL memory",        "Uptime",            "WiFi signal",
-    "Last reading",     "Failures in a row",
+    "PSRAM free",       "LVGL memory",        "Uptime",            "Last restart",
+    "WiFi signal",      "Last reading",       "Failures in a row",
 };
 lv_obj_t* s_perf[PERF_COUNT] = {};
 lv_obj_t* s_firmware = nullptr;
@@ -512,6 +513,14 @@ void refresh_device() {
   format_duration(value, sizeof(value), s_device.uptime_s);
   lv_label_set_text(s_perf[PERF_UPTIME], value);
 
+  // A crash, a watchdog or a power dip in amber: nobody asked for those.
+  const SheetCrash& crash = crash_get();
+  lv_label_set_text(s_perf[PERF_RESTART], restart_text(crash.restart));
+  lv_obj_set_style_text_color(
+      s_perf[PERF_RESTART],
+      lv_color_hex(restart_unexpected(crash.restart) ? PUCK_COLOUR_WARN : PUCK_COLOUR_TEXT),
+      LV_PART_MAIN);
+
   if (s_device.wifi_connected) {
     snprintf(value, sizeof(value), "%d dBm", s_device.rssi);
   } else {
@@ -859,7 +868,7 @@ void slide(int32_t from, int32_t to, lv_anim_ready_cb_t done) {
 }
 
 bool modal_open() {
-  return keypad_is_open() || plant_modal_open() || ha_modal_open() ||
+  return keypad_is_open() || plant_modal_open() || ha_modal_open() || crash_modal_open() ||
          !lv_obj_has_flag(s_picker, LV_OBJ_FLAG_HIDDEN) ||
          !lv_obj_has_flag(s_join_panel, LV_OBJ_FLAG_HIDDEN);
 }
@@ -1301,7 +1310,7 @@ void build_device(lv_obj_t* tile) {
   lv_obj_t* body = page_body(tile);
 
   lv_obj_t* left = card(body, 520, CARD_H);
-  lv_obj_set_style_pad_row(left, 7, LV_PART_MAIN);
+  lv_obj_set_style_pad_row(left, 5, LV_PART_MAIN);
   caption(left, "PERFORMANCE");
   for (int i = 0; i < PERF_COUNT; ++i) {
     lv_obj_t* line = row(left);
@@ -1309,8 +1318,13 @@ void build_device(lv_obj_t* tile) {
     s_perf[i] = text(line, FONT_TEXT, PUCK_COLOUR_TEXT, "--");
   }
   spacer(left);
-  s_restart_button = button(left, "Restart", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  lv_obj_t* device_buttons = button_row(left);
+  s_restart_button = button(device_buttons, "Restart", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
   lv_obj_add_event_cb(s_restart_button, on_restart, LV_EVENT_CLICKED, nullptr);
+  // The crash saved in flash, on screen to be photographed: there is no other way
+  // to read it from a panel on the wall.
+  lv_obj_t* crash_button = button(device_buttons, "Crash details", COLOUR_CONTROL, PUCK_COLOUR_TEXT);
+  lv_obj_add_event_cb(crash_button, [](lv_event_t*) { crash_open(); }, LV_EVENT_CLICKED, nullptr);
 
   lv_obj_t* column = plain(body);
   lv_obj_set_size(column, 400, CARD_H);
@@ -1919,6 +1933,7 @@ void settings_sheet_create(lv_obj_t* parent, const SheetActions& actions) {
   build_restart_bar(s_root);
   plant_build_modals(s_root);
   ha_build_modals(s_root);
+  crash_build_modal(s_root);
   keypad_build(s_root);
   build_picker(s_root);
   build_join_panel(s_root);
@@ -1991,6 +2006,13 @@ void settings_sheet_set_data(const SheetData& data) {
   refresh_data();
 }
 
+void settings_sheet_set_crash(const SheetCrash& crash) {
+  crash_set(crash);
+  if (s_open && s_page == SheetPage::Device) {
+    refresh_device();
+  }
+}
+
 void settings_sheet_set_device(const SheetDevice& device) {
   s_device = device;
   if (s_open && s_page == SheetPage::Device) {
@@ -2027,6 +2049,7 @@ void settings_sheet_close(bool animate) {
   keypad_close();
   plant_close_modals();
   ha_close_modals();
+  crash_close();
   lv_obj_add_flag(s_picker, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(s_join_panel, LV_OBJ_FLAG_HIDDEN);
   s_join_requested = false;
@@ -2203,6 +2226,10 @@ void settings_sheet_show_ha_picker(int role) {
 
 void settings_sheet_show_devices() {
   plant_open_devices();
+}
+
+void settings_sheet_show_crash() {
+  crash_open();
 }
 
 void settings_sheet_show_array(int index) {

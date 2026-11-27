@@ -227,6 +227,41 @@ struct SheetDevice {
   char update_detail[SHEET_TEXT] = {};
 };
 
+// Why the panel last started, from esp_reset_reason(). Only shown, never stored.
+enum class SheetRestart : uint8_t {
+  Unknown,
+  PowerOn,       // the switch, or the supply coming back
+  Software,      // asked for: Restart, an install, a change of source
+  Crash,         // a panic: a fault, abort() or a failed assert
+  TaskWatchdog,  // a task hung for 5 s
+  IntWatchdog,   // interrupts held off too long
+  Watchdog,      // another watchdog
+  PowerDip,      // brownout: the supply sagged
+  ResetPin,
+  Other,
+};
+
+// The crash saved in flash by the core dump (esp_core_dump_get_summary()). It
+// stays until the next crash replaces it, so it may be older than the last
+// restart: `restart` says whether this start followed a crash at all. RISC-V
+// keeps no backtrace on the device, so the stack's code addresses stand in for
+// one, to be looked up on a computer against the build whose `build` this is.
+static constexpr int SHEET_CRASH_STACK = 8;
+struct SheetCrash {
+  SheetRestart restart = SheetRestart::Unknown;
+  bool saved = false;       // a core dump is in flash
+  bool this_build = false;  // it came from the firmware now running
+  char build[17] = {};      // the crashing build's ELF SHA-256, first 16 hex digits
+  char task[16] = {};
+  uint32_t pc = 0;
+  uint32_t ra = 0;
+  uint32_t sp = 0;
+  uint32_t mcause = 0;
+  uint32_t mtval = 0;
+  uint32_t stack[SHEET_CRASH_STACK] = {};  // likely return addresses, nearest first
+  uint8_t stack_count = 0;
+};
+
 // What the owner does when someone changes something. Any of these may be null.
 // None of them may block: anything that touches the network is a request for
 // the poll task to pick up (CLAUDE.md, "Never do network work on the LVGL thread").
@@ -301,6 +336,8 @@ void settings_sheet_set_sound(const SheetSound& sound);
 void settings_sheet_set_wifi(const SheetWifi& wifi);
 void settings_sheet_set_data(const SheetData& data);
 void settings_sheet_set_device(const SheetDevice& device);
+// Once, at start-up: why the panel started and the crash saved in flash.
+void settings_sheet_set_crash(const SheetCrash& crash);
 void settings_sheet_set_scan(const SheetScan& scan);
 void settings_sheet_set_solar(const SheetSolar& solar);
 void settings_sheet_set_ha_sensors(const SheetHaSensors& sensors);
@@ -328,6 +365,8 @@ void settings_sheet_show_password(const char* ssid, bool secure);
 void settings_sheet_show_entry(SheetEntry entry);
 // The Modbus device editor, and one solar array's editor. For the sim.
 void settings_sheet_show_devices();
+// The Device page's crash view, over whatever page is open.
+void settings_sheet_show_crash();
 // The Home Assistant sensor list, and the picker for one role. For the sim.
 void settings_sheet_show_ha_sensors();
 void settings_sheet_show_ha_picker(int role);

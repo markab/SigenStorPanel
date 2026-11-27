@@ -355,8 +355,9 @@ Assistant**, choose **Off**, **This panel** (calculated from the settings below)
 
 <table>
 <tr><th width="32%">Option</th><th>What it does</th></tr>
-<tr><td><strong>Performance</strong></td><td>How fast the screen is drawing, free memory, uptime, WiFi signal, and how long ago the last reading arrived.</td></tr>
+<tr><td><strong>Performance</strong></td><td>How fast the screen is drawing, free memory, uptime, WiFi signal, and how long ago the last reading arrived. <strong>Last restart</strong> says why the panel last started: power on, restarted on purpose, or, in amber, a crash, a watchdog or a power dip.</td></tr>
 <tr><td><strong>Restart</strong></td><td>Restarts the panel. Needed after any ↻ change above.</td></tr>
+<tr><td><strong>Crash details</strong></td><td>The last crash the panel saved, which stays until the next one: which task, why, and the code addresses. Take a photo of it; <code>tools/decode_crash.sh</code> turns the addresses into functions and lines against that build.</td></tr>
 <tr><td><strong>Firmware</strong></td><td>The version running. <strong>Check now</strong> looks for a newer release. <strong>Install</strong> appears when there is one; the panel shows its progress and restarts by itself. <strong>Check automatically</strong> is off by default, so the panel contacts nothing but your own network unless you ask it to. With it on, the panel checks after it starts and then every 12 hours, and a dot on the Device tab says an update is waiting. Installing is always your choice.</td></tr>
 <tr><td><strong>On the network</strong></td><td>The panel's name, IP address and WiFi MAC address. The MAC is what your router lists when you reserve an address.</td></tr>
 <tr><td><strong>Rename</strong> ↻</td><td>What the panel calls itself on your network. The default is <code>sigenstorpanel</code>, which answers as <code>sigenstorpanel.local</code>. Change it if you have more than one.</td></tr>

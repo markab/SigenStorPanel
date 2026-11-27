@@ -773,6 +773,8 @@ void push_ha_list() {
   settings_sheet_set_ha_list(s_sheet_ha_list);
 }
 
+SheetCrash s_sheet_crash;
+
 void push_sheet_device() {
   s_sheet_device.uptime_s = lv_tick_get() / 1000 + 3 * 3600 + 12 * 60;
   settings_sheet_set_device(s_sheet_device);
@@ -869,6 +871,25 @@ void seed_sheet() {
   s_sheet_device.last_read_age_s = 3;
   s_sheet_device.update = SheetUpdate::UpToDate;
   push_sheet_device();
+
+  // An ordinary start, with an old crash in the EnViOT task still saved. Made up:
+  // the addresses mean nothing in the sim's build.
+  SheetCrash& crash = s_sheet_crash;
+  crash.restart = SheetRestart::PowerOn;
+  crash.saved = true;
+  crash.this_build = true;
+  snprintf(crash.build, sizeof(crash.build), "%s", "3f9a1c07b");
+  snprintf(crash.task, sizeof(crash.task), "%s", "enviot");
+  crash.pc = 0x4004b2a6;
+  crash.ra = 0x4004b1f0;
+  crash.sp = 0x4ff5c3a0;
+  crash.mcause = 5;
+  crash.mtval = 0x00000010;
+  const uint32_t stack[] = {0x40051e2c, 0x4005204a, 0x40019d88, 0x4001a3f2, 0x4ff0a91c, 0x4001b004};
+  for (uint32_t address : stack) {
+    crash.stack[crash.stack_count++] = address;
+  }
+  settings_sheet_set_crash(crash);
 }
 
 SheetActions sim_sheet_actions() {
@@ -1644,6 +1665,16 @@ int run_sheet_shots(const std::string& directory) {
   settings_sheet_close(false);
   s_sheet_device.update = SheetUpdate::UpToDate;
   push_sheet_device();
+  // The crash view, over the Device page, as after a crash.
+  s_sheet_crash.restart = SheetRestart::Crash;
+  settings_sheet_set_crash(s_sheet_crash);
+  settings_sheet_open(SheetPage::Device, false);
+  run_frames(50);
+  failures += save_shot(directory, "sheet_7d_device") ? 0 : 1;
+  settings_sheet_show_crash();
+  run_frames(50);
+  failures += save_shot(directory, "sheet_7e_crash") ? 0 : 1;
+  settings_sheet_close(false);
 
   // Adding a network on the glass: the picker, the password, a refusal, success.
   settings_sheet_show_picker();
