@@ -43,9 +43,9 @@ void refresh() {
   }
   add("Saved crash: %s, build %s\n", s_crash.this_build ? "this firmware" : "an earlier firmware",
       s_crash.build);
-  char cause[40];
+  char cause[48];
   add("Task: %s\n", s_crash.task[0] != '\0' ? s_crash.task : "--");
-  add("Cause: %s (mcause %08lx, mtval %08lx)\n", crash_cause_text(s_crash.mcause, cause, sizeof(cause)),
+  add("Cause: %s (mcause %08lx, mtval %08lx)\n", crash_cause_text(s_crash.mcause, s_crash.mtval, cause, sizeof(cause)),
       static_cast<unsigned long>(s_crash.mcause), static_cast<unsigned long>(s_crash.mtval));
   add("PC %08lx   RA %08lx   SP %08lx\n", static_cast<unsigned long>(s_crash.pc),
       static_cast<unsigned long>(s_crash.ra), static_cast<unsigned long>(s_crash.sp));
@@ -100,7 +100,13 @@ bool restart_unexpected(SheetRestart restart) {
   }
 }
 
-const char* crash_cause_text(uint32_t mcause, char* out, size_t size) {
+const char* crash_cause_text(uint32_t mcause, uint32_t mtval, char* out, size_t size) {
+  // abort() and a failed assert end in panic_abort, which stops the CPU with an
+  // all-zero instruction: an illegal instruction whose bits (mtval) are 0.
+  if (mcause == 2 && mtval == 0) {
+    snprintf(out, size, "abort: a failed assert, or abort()");
+    return out;
+  }
   // The top bit marks an interrupt rather than an exception: on this chip, a
   // watchdog's or a cross-core panic's.
   if ((mcause & 0x80000000u) != 0) {
@@ -109,7 +115,7 @@ const char* crash_cause_text(uint32_t mcause, char* out, size_t size) {
   }
   static const char* const EXCEPTION[] = {
       "instruction misaligned", "instruction access fault", "illegal instruction",
-      "breakpoint (abort or assert)", "load misaligned", "load access fault",
+      "breakpoint", "load misaligned", "load access fault",
       "store misaligned", "store access fault", "environment call", "environment call",
       "exception 10", "environment call",
   };

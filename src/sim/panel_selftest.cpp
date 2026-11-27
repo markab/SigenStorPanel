@@ -382,15 +382,20 @@ void test_enviot_edges() {
 }
 
 void test_crash_words() {
-  char text[40];
-  check(strcmp(sheet_kit::crash_cause_text(5, text, sizeof(text)), "load access fault") == 0,
+  char text[48];
+  check(strcmp(sheet_kit::crash_cause_text(5, 0x10, text, sizeof(text)), "load access fault") == 0,
         "mcause 5 is a load access fault");
-  check(strcmp(sheet_kit::crash_cause_text(7, text, sizeof(text)), "store access fault") == 0,
+  check(strcmp(sheet_kit::crash_cause_text(7, 0x10, text, sizeof(text)), "store access fault") == 0,
         "mcause 7 is a store access fault");
-  check(strcmp(sheet_kit::crash_cause_text(0x80000007u, text, sizeof(text)), "interrupt 7") == 0,
+  check(strcmp(sheet_kit::crash_cause_text(0x80000007u, 0, text, sizeof(text)), "interrupt 7") == 0,
         "the top bit marks an interrupt");
-  check(strcmp(sheet_kit::crash_cause_text(24, text, sizeof(text)), "exception 24") == 0,
+  check(strcmp(sheet_kit::crash_cause_text(24, 0, text, sizeof(text)), "exception 24") == 0,
         "an unlisted cause keeps its number");
+  check(strcmp(sheet_kit::crash_cause_text(2, 0, text, sizeof(text)),
+               "abort: a failed assert, or abort()") == 0,
+        "an all-zero illegal instruction is panic_abort");
+  check(strcmp(sheet_kit::crash_cause_text(2, 0x1234, text, sizeof(text)), "illegal instruction") == 0,
+        "any other illegal instruction is just that");
   check(sheet_kit::restart_unexpected(SheetRestart::Crash) &&
             sheet_kit::restart_unexpected(SheetRestart::TaskWatchdog) &&
             sheet_kit::restart_unexpected(SheetRestart::PowerDip),

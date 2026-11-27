@@ -446,9 +446,9 @@ void perform_apply() {
   // window (64 KB, about 80 KB with esp-hosted's and lwIP's overheads) waiting in
   // internal RAM, and esp-hosted needs blocks of up to 64 KB beside that. With the
   // UI and a TLS session in place there were 167 KB free in pieces of at most
-  // 70 KB, and the third attempt died at 25%. The display's draw buffer is 120 KB
-  // of internal RAM that an install can do without, so it goes to PSRAM until
-  // the restart, or back again if the install fails.
+  // 70 KB, and the third attempt died at 25%. The display's draw buffer (120 KB
+  // then, 40 KB since 0.2.7) is internal RAM that an install can do without, so
+  // it goes to PSRAM until the restart, or back again if the install fails.
   log_heap("before");
   s_wants_internal_ram = true;
   const uint32_t asked_ms = millis();

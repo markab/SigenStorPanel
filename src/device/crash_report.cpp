@@ -4,13 +4,15 @@
 #include <esp_app_desc.h>
 #include <esp_core_dump.h>
 #include <esp_system.h>
+#include <soc/soc.h>
 #include <string.h>
 
 #include <memory>
 #include <new>
 
-// The linker's bounds of the code, flash and IRAM: a word on the stack inside
-// either is likely a return address.
+// The linker's bounds of the code, flash and IRAM, and the chip's ROM: a word on
+// the stack inside any of them is likely a return address. ROM holds the heap's
+// TLSF allocator and much of the C library, where asserts often fire.
 extern "C" char _text_start[];
 extern "C" char _text_end[];
 extern "C" char _iram_text_start[];
@@ -53,7 +55,8 @@ bool is_code(uint32_t address) {
   return (a >= reinterpret_cast<uintptr_t>(_text_start) &&
           a < reinterpret_cast<uintptr_t>(_text_end)) ||
          (a >= reinterpret_cast<uintptr_t>(_iram_text_start) &&
-          a < reinterpret_cast<uintptr_t>(_iram_text_end));
+          a < reinterpret_cast<uintptr_t>(_iram_text_end)) ||
+         (a >= SOC_IROM_MASK_LOW && a < SOC_IROM_MASK_HIGH);
 }
 
 }  // namespace

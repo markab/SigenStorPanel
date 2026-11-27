@@ -170,8 +170,9 @@ void crash_close();
 const char* restart_text(SheetRestart restart);
 // True for a restart nobody asked for.
 bool restart_unexpected(SheetRestart restart);
-// The RISC-V trap cause in words: "load access fault", "interrupt 7".
-const char* crash_cause_text(uint32_t mcause, char* out, size_t size);
+// The RISC-V trap cause in words: "load access fault", "interrupt 7", or "abort"
+// for ESP-IDF's panic_abort, which traps on an all-zero illegal instruction.
+const char* crash_cause_text(uint32_t mcause, uint32_t mtval, char* out, size_t size);
 
 // ----------------------------------------------------------------- confirm ---
 

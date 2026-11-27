@@ -863,6 +863,7 @@ void seed_sheet() {
   snprintf(s_sheet_device.ip, sizeof(s_sheet_device.ip), "192.168.1.100");
   s_sheet_device.internal_free = 412 * 1024;
   s_sheet_device.internal_largest = 192 * 1024;
+  s_sheet_device.internal_largest_low = 96 * 1024;
   s_sheet_device.psram_free = 29 * 1024 * 1024 + 300 * 1024;
   s_sheet_device.psram_total = 32 * 1024 * 1024;
   s_sheet_device.wifi_connected = true;

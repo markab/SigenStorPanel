@@ -211,6 +211,9 @@ struct SheetDevice {
   uint32_t uptime_s = 0;
   uint32_t internal_free = 0;
   uint32_t internal_largest = 0;  // the number TLS cares about
+  // The smallest the largest block has been since start-up: how near internal
+  // RAM came to the point where esp-hosted can no longer take a burst.
+  uint32_t internal_largest_low = 0;
   uint32_t psram_free = 0;
   uint32_t psram_total = 0;
   int8_t rssi = 0;

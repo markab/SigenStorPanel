@@ -483,6 +483,12 @@ void refresh_device() {
     format_bytes(value, sizeof(value), s_device.internal_free);
     lv_label_set_text(s_perf[PERF_INTERNAL], value);
     format_bytes(value, sizeof(value), s_device.internal_largest);
+    if (s_device.internal_largest_low > 0) {
+      char low[16];
+      format_bytes(low, sizeof(low), s_device.internal_largest_low);
+      strncat(value, ", low ", sizeof(value) - strlen(value) - 1);
+      strncat(value, low, sizeof(value) - strlen(value) - 1);
+    }
     lv_label_set_text(s_perf[PERF_LARGEST], value);
   } else {
     lv_label_set_text(s_perf[PERF_INTERNAL], "--");

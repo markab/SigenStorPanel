@@ -307,6 +307,24 @@ void push_join() {
   }
 }
 
+// The largest free block of internal RAM at its lowest since start-up, sampled
+// once a second. esp-hosted needs one block as big as the largest burst the C6
+// sends; if this falls below that, the next such burst restarts the panel.
+uint32_t s_largest_low = 0;
+uint32_t s_largest_sampled_ms = 0;
+
+void sample_largest_block() {
+  const uint32_t now = millis();
+  if (s_largest_low != 0 && now - s_largest_sampled_ms < 1000) {
+    return;
+  }
+  s_largest_sampled_ms = now;
+  const uint32_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+  if (s_largest_low == 0 || largest < s_largest_low) {
+    s_largest_low = largest;
+  }
+}
+
 void push_device() {
   SheetDevice device;
   snprintf(device.firmware, sizeof(device.firmware), "%s", PUCK_FW_VERSION);
@@ -320,6 +338,8 @@ void push_device() {
   device.uptime_s = millis() / 1000;
   device.internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
   device.internal_largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+  sample_largest_block();
+  device.internal_largest_low = s_largest_low;
   device.psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
   device.psram_total = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
   device.wifi_connected = WiFi.status() == WL_CONNECTED;
@@ -627,6 +647,7 @@ void settings_bridge_begin() {
 }
 
 void settings_bridge_loop() {
+  sample_largest_block();
   // Scan and join progress at loop rate: someone is watching for it.
   push_scan();
   push_join();

@@ -64,10 +64,15 @@ static constexpr int8_t PUCK_BACKLIGHT_PWM = 31;
 static constexpr uint32_t PUCK_BACKLIGHT_PWM_HZ = 30000;
 static constexpr uint8_t PUCK_LCD_BRIGHTNESS = 200;  // 0..255, default before settings load
 
-// LVGL partial draw buffer, in whole display lines. 60 x 1024 x 2 B = 120 KB.
-// TODO(confirm on hardware): DSI wants a full framebuffer in PSRAM anyway, so
-// the right shape here may be direct mode into that rather than a partial buffer.
-static constexpr uint16_t PUCK_LVGL_BUFFER_LINES = 60;
+// LVGL partial draw buffer, in whole display lines: 20 x 1024 x 2 B = 40 KB of
+// internal RAM. It was 60 lines (120 KB) until 0.2.7, which left too little
+// internal RAM for esp-hosted: it keeps one receive buffer in internal DMA RAM
+// and grows it, freeing and reallocating, for the largest burst the C6 has sent
+// so far. With no contiguous block that big it asserts (sdio_drv.c:896 in
+// esp-hosted 2.12.3) and the panel restarts: the sdio_read crashes of 0.2.3 to
+// 0.2.6. Twenty lines is a frame in 30 strips rather than 10, each still drawn
+// in fast internal RAM.
+static constexpr uint16_t PUCK_LVGL_BUFFER_LINES = 20;
 
 // ---------------------------------------------------------------- buttons ---
 
