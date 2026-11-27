@@ -1,7 +1,9 @@
 // Screen, panel: grid events. Each live event in a card across the top (two can
-// overlap: an Axle export inside a Saving Session), else the next booked one,
-// else the latest finished one; the events before them in rows underneath,
-// newest first, as many as fit. A new event pushes the oldest row off the bottom.
+// overlap: an Axle export inside a Saving Session), opened out with its figures.
+// Booked events come next as rows, soonest first, saying how long until they
+// start: they get a card when they go live. Then the finished ones, newest first,
+// as many as fit. With nothing live or booked, the latest finished one takes the
+// card, so the screen leads with a result rather than a list.
 //
 // The wording comes from events.h's helpers, so the panel describes an event in
 // the same words as both Puck boards; this file only lays them out. The round and
@@ -30,9 +32,10 @@ constexpr lv_coord_t CARD_W = PUCK_LCD_WIDTH - 2 * PAD_X;
 constexpr int CARDS = 2;
 constexpr lv_coord_t ROWS_GAP = 18;  // from the last card to the first row
 constexpr lv_coord_t ROW_H = 46;
-constexpr int ROWS = 6;
 // The rows stop here, clear of the page dots: six under one card.
-constexpr lv_coord_t ROWS_BOTTOM = CARD_Y + CARD_H + ROWS_GAP + ROWS * ROW_H;
+constexpr lv_coord_t ROWS_BOTTOM = CARD_Y + CARD_H + ROWS_GAP + 6 * ROW_H;
+// With no card at all, the rows start at the top and ten fit.
+constexpr int ROWS = static_cast<int>((ROWS_BOTTOM - CARD_Y) / ROW_H);
 // The card's figures: the kind's own (events_figures, at most two) and the
 // battery's run.
 constexpr int CARD_FIGURES = 3;
@@ -237,10 +240,14 @@ void show_row(Row& row, const GridEvent& event, uint32_t now, int32_t tz_offset_
   set_text(row.when, text);
 
   // The figures on one line, " · " between them, the first named ("cut 3.8 kWh",
-  // "exported 4.2 kWh"); a session sat out says so.
-  char line[64] = {};
-  if (events_state_at(event, now) == EventState::Deferred) {
-    snprintf(line, sizeof(line), "Deferred");
+  // "exported 4.2 kWh"); a session sat out says so. An event not over yet leads
+  // with how it stands: "In 44 min", or "Live · 12 min left" for a live event
+  // there was no card for.
+  char line[96] = {};
+  const EventState state = events_state_at(event, now);
+  if (state == EventState::Upcoming || state == EventState::Live ||
+      state == EventState::Deferred) {
+    events_format_status(event, now, line, sizeof(line));
   }
   EventFigure figures[2];
   const size_t count = events_figures(event, figures, 2);
@@ -258,8 +265,9 @@ void show_row(Row& row, const GridEvent& event, uint32_t now, int32_t tz_offset_
   set_text(row.figures, line);
   lv_obj_set_style_text_color(
       row.figures,
-      lv_color_hex(events_state_at(event, now) == EventState::Deferred ? PUCK_COLOUR_MUTED
-                                                                        : PUCK_COLOUR_TEXT),
+      lv_color_hex(state == EventState::Deferred ? PUCK_COLOUR_MUTED
+                   : state == EventState::Live   ? PUCK_COLOUR_BATTERY
+                                                 : PUCK_COLOUR_TEXT),
       LV_PART_MAIN);
   lv_obj_clear_flag(row.box, LV_OBJ_FLAG_HIDDEN);
 }
@@ -306,14 +314,25 @@ void screen_events_update(const EventList& events, uint32_t now, int32_t tz_offs
       }
     }
   }
+  // Booked events, soonest first: rows, until they go live.
+  const GridEvent* booked[EVENTS_MAX_UPCOMING];
+  int booked_count = 0;
+  if (events.valid) {
+    for (uint8_t i = 0; i < events.upcoming_count && i < EVENTS_MAX_UPCOMING; ++i) {
+      if (events_renderable(events.upcoming[i])) {
+        booked[booked_count++] = &events.upcoming[i];
+      }
+    }
+  }
+  // Nothing live or booked: the latest finished event takes the card.
   const GridEvent* featured = nullptr;
-  if (live == 0) {
+  if (live == 0 && booked_count == 0) {
     featured = events.valid ? events_featured(events) : nullptr;
     if (featured != nullptr) {
       carded[live++] = featured;
     }
   }
-  if (live == 0) {
+  if (live == 0 && booked_count == 0) {
     for (Card& card : s_cards) {
       lv_obj_add_flag(card.box, LV_OBJ_FLAG_HIDDEN);
     }
@@ -339,12 +358,15 @@ void screen_events_update(const EventList& events, uint32_t now, int32_t tz_offs
     }
   }
 
-  // The rows: a live event there was no card for, then everything finished,
-  // newest first, but the one already in a card.
-  const GridEvent* listed[EVENTS_MAX_LIVE + EVENTS_MAX_PAST];
+  // The rows: a live event there was no card for, the booked ones, then
+  // everything finished, newest first, but the one already in a card.
+  const GridEvent* listed[EVENTS_MAX_LIVE + EVENTS_MAX_UPCOMING + EVENTS_MAX_PAST];
   int count = 0;
   for (int i = cards; i < live; ++i) {
     listed[count++] = carded[i];
+  }
+  for (int i = 0; i < booked_count; ++i) {
+    listed[count++] = booked[i];
   }
   for (uint8_t i = 0; i < events.past_count && i < EVENTS_MAX_PAST; ++i) {
     const GridEvent& event = events.past[i];
@@ -352,7 +374,8 @@ void screen_events_update(const EventList& events, uint32_t now, int32_t tz_offs
       listed[count++] = &event;
     }
   }
-  const lv_coord_t rows_y = CARD_Y + cards * card_h + (cards - 1) * CARD_GAP + ROWS_GAP;
+  const lv_coord_t rows_y =
+      cards > 0 ? CARD_Y + cards * card_h + (cards - 1) * CARD_GAP + ROWS_GAP : CARD_Y;
   const int fit = static_cast<int>((ROWS_BOTTOM - rows_y) / ROW_H);
   for (int i = 0; i < ROWS; ++i) {
     if (i < count && i < fit) {

@@ -1780,9 +1780,35 @@ int run_screenshot_pass(const std::string& output_directory) {
     lv_refr_now(nullptr);
     failures += save_shot(output_directory, "events_three_live") ? 0 : 1;
 
+    // Today's case: a Saving Session and an Axle export both booked for the same
+    // hour, 44 minutes away. Both are rows until they start.
+    EventList booked = s_events;
+    GridEvent booked_saving = saving;
+    booked_saving.state = EventState::Upcoming;
+    booked_saving.start = s_events.now + 44 * 60;
+    booked_saving.end = booked_saving.start + 3600;
+    booked_saving.cut_kwh = MaybeFloat();
+    booked_saving.points = MaybeInt();
+    booked_saving.soc_start = MaybeFloat();
+    GridEvent booked_axle = s_events.current;
+    booked_axle.state = EventState::Upcoming;
+    booked_axle.start = booked_saving.start;
+    booked_axle.end = booked_saving.end;
+    booked_axle.export_kwh = MaybeFloat();
+    booked_axle.soc_start = MaybeFloat();
+    booked.current = booked_saving;
+    booked.live_count = 0;
+    booked.upcoming[0] = booked_saving;
+    booked.upcoming[1] = booked_axle;
+    booked.upcoming_count = 2;
+    ui_update_events(booked);
+    lv_refr_now(nullptr);
+    failures += save_shot(output_directory, "events_two_booked") ? 0 : 1;
+
     EventList variant = s_events;
     variant.has_current = false;
     variant.live_count = 0;
+    variant.upcoming_count = 0;
     ui_update_events(variant);
     lv_refr_now(nullptr);
     failures += save_shot(output_directory, "events_no_current") ? 0 : 1;
